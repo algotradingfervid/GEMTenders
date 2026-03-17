@@ -24,6 +24,8 @@ func main() {
 		runStatusCmd(os.Args[2:])
 	case "serve":
 		runServeCmd(os.Args[2:])
+	case "reindex":
+		runReindexCmd(os.Args[2:])
 	default:
 		printUsage()
 		os.Exit(1)
@@ -37,7 +39,8 @@ Commands:
   scrape     Scrape bid listings from GEM portal
   download   Download PDF documents for scraped bids
   status     Show scraping/download progress
-  serve      Start the web server for tender discovery`)
+  serve      Start the web server for tender discovery
+  reindex    Rebuild the full-text search index`)
 }
 
 func runScrapeCmd(args []string) {
@@ -112,6 +115,28 @@ func runStatusCmd(args []string) {
 	fmt.Printf("Total bids:        %d\n", total)
 	fmt.Printf("PDFs downloaded:   %d\n", downloaded)
 	fmt.Printf("PDFs pending:      %d\n", len(pending))
+}
+
+func runReindexCmd(args []string) {
+	fs := flag.NewFlagSet("reindex", flag.ExitOnError)
+	dbPath := fs.String("db", "gems.db", "SQLite database path")
+	fs.Parse(args)
+
+	db, err := InitDB(*dbPath)
+	if err != nil {
+		log.Fatalf("Failed to init DB: %v", err)
+	}
+	defer db.Close()
+
+	if err := InitFTS(db); err != nil {
+		log.Fatalf("Failed to init FTS: %v", err)
+	}
+	if err := RebuildFTS(db); err != nil {
+		log.Fatalf("Failed to rebuild FTS: %v", err)
+	}
+
+	total, downloaded, _ := GetBidCount(db)
+	log.Printf("Reindex complete. Total bids: %d, PDFs: %d", total, downloaded)
 }
 
 func runServeCmd(args []string) {
