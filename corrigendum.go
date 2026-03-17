@@ -247,6 +247,7 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int) err
 
 				changed, err := processOneBid(sp, db, bidID, limiter)
 				if err != nil {
+					log.Printf("[corrigendum] Error bid_id=%d: %v", bidID, err)
 					atomic.AddInt64(&errors, 1)
 					sp = pool.Next()
 					continue
