@@ -176,7 +176,9 @@ func GetBidCount(db *sql.DB) (total int, downloaded int, err error) {
 	if err != nil {
 		return
 	}
-	err = db.QueryRow("SELECT COUNT(*) FROM bids WHERE pdf_downloaded = 1").Scan(&downloaded)
+	// Count unique download IDs (files), not bids — multiple bids can share one PDF
+	err = db.QueryRow(`SELECT COUNT(DISTINCT CASE WHEN bid_id_parent > 0 THEN bid_id_parent ELSE bid_id END)
+		FROM bids WHERE pdf_downloaded = 1`).Scan(&downloaded)
 	return
 }
 

@@ -46,7 +46,7 @@ Commands:
 func runScrapeCmd(args []string) {
 	fs := flag.NewFlagSet("scrape", flag.ExitOnError)
 	dbPath := fs.String("db", "gems.db", "SQLite database path")
-	sessions := fs.Int("sessions", 10, "Number of sessions to bootstrap")
+	sessions := fs.Int("sessions", 3, "Number of sessions to bootstrap")
 	scrapers := fs.Int("scrapers", 5, "Number of parallel scraper instances")
 	staggerSec := fs.Int("stagger", 30, "Seconds between scraper launches")
 	workers := fs.Int("workers", 20, "Workers per scraper instance")
@@ -143,7 +143,7 @@ func runServeCmd(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	dbPath := fs.String("db", "gems.db", "SQLite database path")
 	downloadDir := fs.String("downloads", "downloads", "PDF download directory")
-	addr := fs.String("addr", ":8080", "Server listen address")
+	addr := fs.String("addr", ":28080", "Server listen address")
 	fs.Parse(args)
 
 	db, err := InitDB(*dbPath)

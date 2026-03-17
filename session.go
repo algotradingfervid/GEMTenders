@@ -2,9 +2,11 @@ package main
 
 import (
 	"compress/gzip"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"regexp"
@@ -41,14 +43,14 @@ func BootstrapSessions(count int) (*SessionPool, error) {
 	for i := 0; i < count; i++ {
 		var sp *SessionPair
 		var err error
-		for attempt := 1; attempt <= 3; attempt++ {
+		for attempt := 1; attempt <= 5; attempt++ {
 			sp, err = createSession()
 			if err == nil {
 				break
 			}
 			log.Printf("Session %d attempt %d failed: %v", i+1, attempt, err)
-			if attempt < 3 {
-				backoff := time.Duration(attempt*10) * time.Second
+			if attempt < 5 {
+				backoff := time.Duration(attempt*attempt*5) * time.Second // 5s, 20s, 45s, 80s
 				log.Printf("Retrying in %s...", backoff)
 				time.Sleep(backoff)
 			}
@@ -64,7 +66,7 @@ func BootstrapSessions(count int) (*SessionPool, error) {
 		log.Printf("Session %d/%d: CSRF=%s", i+1, count, sp.CSRFToken)
 
 		if i < count-1 {
-			time.Sleep(2 * time.Second)
+			time.Sleep(5 * time.Second) // longer gap between sessions to avoid WAF triggers
 		}
 	}
 
@@ -78,9 +80,27 @@ func createSession() (*SessionPair, error) {
 		return nil, fmt.Errorf("create cookie jar: %w", err)
 	}
 
+	// Custom transport: force HTTP/1.1 to avoid TLS fingerprint issues
+	// with Go 1.25's default h2/h3 ALPN negotiation that GEM's WAF rejects.
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
+		DialContext: (&net.Dialer{
+			Timeout:   15 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	// Disable HTTP/2 — forces HTTP/1.1 ALPN, matching Go 1.24 behavior
+	transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+
 	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Jar:     jar,
+		Timeout:   30 * time.Second,
+		Jar:       jar,
+		Transport: transport,
 	}
 
 	req, err := http.NewRequest("GET", baseURL+"/all-bids", nil)
