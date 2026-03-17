@@ -255,31 +255,37 @@ func RebuildFTS(db *sql.DB) error {
 }
 
 type BidResult struct {
-	ID              string
-	BidID           int
-	BidNumber       string
-	BidNumberParent string
-	BidIDParent     int
-	CategoryName    string
-	TotalQuantity   int
-	StartDate       string
-	EndDate         string
-	IsHighValue     int
-	MinistryName    string
-	DepartmentName  string
+	ID                string
+	BidID             int
+	BidNumber         string
+	BidNumberParent   string
+	BidIDParent       int
+	CategoryName      string
+	TotalQuantity     int
+	StartDate         string
+	EndDate           string
+	IsHighValue       int
+	MinistryName      string
+	DepartmentName    string
+	HasCorrigendum    int
+	HasRepresentation int
 }
 
 func GetBidByID(db *sql.DB, id string) (*BidResult, error) {
 	var r BidResult
 	err := db.QueryRow(`
-		SELECT id, bid_id, bid_number, bid_number_parent, bid_id_parent,
-		       category_name, total_quantity, start_date, end_date,
-		       is_high_value, ministry_name, department_name
-		FROM bids WHERE id = ?
+		SELECT b.id, b.bid_id, b.bid_number, b.bid_number_parent, b.bid_id_parent,
+		       b.category_name, b.total_quantity, b.start_date, b.end_date,
+		       b.is_high_value, b.ministry_name, b.department_name,
+		       COALESCE(bod.has_corrigendum, 0), COALESCE(bod.has_representation, 0)
+		FROM bids b
+		LEFT JOIN bid_other_details bod ON bod.bid_id = b.bid_id
+		WHERE b.id = ?
 	`, id).Scan(&r.ID, &r.BidID, &r.BidNumber, &r.BidNumberParent,
 		&r.BidIDParent, &r.CategoryName, &r.TotalQuantity,
 		&r.StartDate, &r.EndDate, &r.IsHighValue,
-		&r.MinistryName, &r.DepartmentName)
+		&r.MinistryName, &r.DepartmentName,
+		&r.HasCorrigendum, &r.HasRepresentation)
 	if err != nil {
 		return nil, err
 	}
@@ -300,9 +306,11 @@ func SearchBids(db *sql.DB, query string, limit int, offset int) ([]BidResult, i
 	rows, err := db.Query(`
 		SELECT b.id, b.bid_id, b.bid_number, b.bid_number_parent, b.bid_id_parent,
 		       b.category_name, b.total_quantity, b.start_date, b.end_date,
-		       b.is_high_value, b.ministry_name, b.department_name
+		       b.is_high_value, b.ministry_name, b.department_name,
+		       COALESCE(bod.has_corrigendum, 0), COALESCE(bod.has_representation, 0)
 		FROM bids_fts f
 		JOIN bids b ON f.rowid = b.rowid
+		LEFT JOIN bid_other_details bod ON bod.bid_id = b.bid_id
 		WHERE bids_fts MATCH ?
 		ORDER BY rank
 		LIMIT ? OFFSET ?
@@ -320,10 +328,13 @@ func recentBids(db *sql.DB, limit int, offset int) ([]BidResult, int, error) {
 	db.QueryRow("SELECT COUNT(*) FROM bids").Scan(&total)
 
 	rows, err := db.Query(`
-		SELECT id, bid_id, bid_number, bid_number_parent, bid_id_parent,
-		       category_name, total_quantity, start_date, end_date,
-		       is_high_value, ministry_name, department_name
-		FROM bids ORDER BY end_date DESC LIMIT ? OFFSET ?
+		SELECT b.id, b.bid_id, b.bid_number, b.bid_number_parent, b.bid_id_parent,
+		       b.category_name, b.total_quantity, b.start_date, b.end_date,
+		       b.is_high_value, b.ministry_name, b.department_name,
+		       COALESCE(bod.has_corrigendum, 0), COALESCE(bod.has_representation, 0)
+		FROM bids b
+		LEFT JOIN bid_other_details bod ON bod.bid_id = b.bid_id
+		ORDER BY b.end_date DESC LIMIT ? OFFSET ?
 	`, limit, offset)
 	if err != nil {
 		return nil, 0, err
@@ -340,7 +351,8 @@ func scanBidResults(rows *sql.Rows, total int) ([]BidResult, int, error) {
 		err := rows.Scan(&r.ID, &r.BidID, &r.BidNumber, &r.BidNumberParent,
 			&r.BidIDParent, &r.CategoryName, &r.TotalQuantity,
 			&r.StartDate, &r.EndDate, &r.IsHighValue,
-			&r.MinistryName, &r.DepartmentName)
+			&r.MinistryName, &r.DepartmentName,
+			&r.HasCorrigendum, &r.HasRepresentation)
 		if err != nil {
 			return nil, 0, err
 		}

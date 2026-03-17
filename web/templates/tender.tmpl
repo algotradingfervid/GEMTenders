@@ -53,6 +53,61 @@
             </div>
         </div>
 
+        {{ if .OtherDetails }}
+        <div class="corrigendum-section">
+            <div class="tabs">
+                {{ if eq .OtherDetails.HasCorrigendum 1 }}
+                <button class="tab active" onclick="showTab('corrigendum')">
+                    Corrigendum <span class="badge corrigendum">{{ .OtherDetails.CorrigendumCount }}</span>
+                </button>
+                {{ end }}
+                {{ if eq .OtherDetails.HasRepresentation 1 }}
+                <button class="tab{{ if ne .OtherDetails.HasCorrigendum 1 }} active{{ end }}" onclick="showTab('representation')">Representation</button>
+                {{ end }}
+            </div>
+
+            {{ if eq .OtherDetails.HasCorrigendum 1 }}
+            <div id="tab-corrigendum" class="tab-content active">
+                {{ if .CorrDocs }}
+                <h4>Corrigendum Documents</h4>
+                <ul class="corr-docs">
+                    {{ range .CorrDocs }}
+                    <li>
+                        {{ if eq .Downloaded 1 }}
+                        <a href="/corrigendum-pdf/{{ .CorrigendumID }}/{{ .BidID }}">Download PDF</a>
+                        {{ else }}
+                        <span class="pending">Pending download</span>
+                        {{ end }}
+                        {{ if .ModifiedOn }}<span class="date">Modified: {{ .ModifiedOn }}</span>{{ end }}
+                    </li>
+                    {{ end }}
+                </ul>
+                {{ end }}
+                <div class="corr-html">
+                    {{ .OtherDetails.CorrigendumHTML | safeHTML }}
+                </div>
+            </div>
+            {{ end }}
+
+            {{ if eq .OtherDetails.HasRepresentation 1 }}
+            <div id="tab-representation" class="tab-content"{{ if eq .OtherDetails.HasCorrigendum 1 }} style="display:none;"{{ end }}>
+                <div class="repr-html">
+                    {{ .OtherDetails.RepresentationHTML | safeHTML }}
+                </div>
+            </div>
+            {{ end }}
+        </div>
+
+        <script>
+        function showTab(name) {
+            document.querySelectorAll('.tab-content').forEach(function(el) { el.style.display = 'none'; });
+            document.querySelectorAll('.tab').forEach(function(el) { el.classList.remove('active'); });
+            document.getElementById('tab-' + name).style.display = 'block';
+            event.target.classList.add('active');
+        }
+        </script>
+        {{ end }}
+
         <div class="pdf-container">
             <h3>Bid Document</h3>
             <iframe src="/pdf/{{ .PDFID }}" width="100%" height="800px"></iframe>

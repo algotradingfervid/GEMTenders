@@ -17,6 +17,8 @@
             {{ end }}
         </div>
         {{ if eq .IsHighValue 1 }}<span class="badge high-value">High Value</span>{{ end }}
+        {{ if eq .HasCorrigendum 1 }}<span class="badge corrigendum">C</span>{{ end }}
+        {{ if eq .HasRepresentation 1 }}<span class="badge representation">R</span>{{ end }}
     </div>
     <div class="result-card-body">
         <div class="result-left">
