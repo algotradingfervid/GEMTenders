@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GEM Tender Discovery</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>GEM Tender Discovery</h1>
+    </header>
+    <main>
+        <div class="search-container">
+            <input type="search"
+                   name="q"
+                   placeholder="Search tenders..."
+                   hx-get="/search"
+                   hx-trigger="input changed delay:300ms, search"
+                   hx-target="#results"
+                   hx-indicator="#spinner"
+                   autocomplete="off">
+            <span id="spinner" class="htmx-indicator">Searching...</span>
+        </div>
+        <div id="results"></div>
+    </main>
+</body>
+</html>

@@ -22,6 +22,8 @@ func main() {
 		runDownloadCmd(os.Args[2:])
 	case "status":
 		runStatusCmd(os.Args[2:])
+	case "serve":
+		runServeCmd(os.Args[2:])
 	default:
 		printUsage()
 		os.Exit(1)
@@ -34,7 +36,8 @@ func printUsage() {
 Commands:
   scrape     Scrape bid listings from GEM portal
   download   Download PDF documents for scraped bids
-  status     Show scraping/download progress`)
+  status     Show scraping/download progress
+  serve      Start the web server for tender discovery`)
 }
 
 func runScrapeCmd(args []string) {
@@ -109,4 +112,20 @@ func runStatusCmd(args []string) {
 	fmt.Printf("Total bids:        %d\n", total)
 	fmt.Printf("PDFs downloaded:   %d\n", downloaded)
 	fmt.Printf("PDFs pending:      %d\n", len(pending))
+}
+
+func runServeCmd(args []string) {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	dbPath := fs.String("db", "gems.db", "SQLite database path")
+	downloadDir := fs.String("downloads", "downloads", "PDF download directory")
+	addr := fs.String("addr", ":8080", "Server listen address")
+	fs.Parse(args)
+
+	db, err := InitDB(*dbPath)
+	if err != nil {
+		log.Fatalf("Failed to init DB: %v", err)
+	}
+	defer db.Close()
+
+	StartServer(db, *downloadDir, *addr)
 }
