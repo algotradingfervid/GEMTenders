@@ -24,11 +24,12 @@ func main() {
 	}
 	defer db.Close()
 
-	// Bootstrap browser session
-	session, err := NewSession()
+	// Bootstrap browser session (keeps browser alive for all requests)
+	session, err := NewBrowserSession()
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
+	defer session.Close()
 
 	// Phase 1: Scrape bid listings
 	if !*skipScrape {

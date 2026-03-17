@@ -4,11 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"net/url"
-	"strings"
 	"time"
 )
 
@@ -29,7 +25,7 @@ func DefaultPayload(page int) APIPayload {
 	}
 }
 
-func ScrapeBids(session *Session, db *sql.DB, delayMs int) error {
+func ScrapeBids(session *BrowserSession, db *sql.DB, delayMs int) error {
 	startPage := GetLastScrapedPage(db) + 1
 	log.Printf("Resuming from page %d", startPage)
 
@@ -69,52 +65,10 @@ func ScrapeBids(session *Session, db *sql.DB, delayMs int) error {
 	return nil
 }
 
-func scrapePage(session *Session, db *sql.DB, page int) (int, error) {
-	payload := DefaultPayload(page)
-	payloadJSON, err := json.Marshal(payload)
+func scrapePage(session *BrowserSession, db *sql.DB, page int) (int, error) {
+	apiResp, err := session.FetchBidsPage(page)
 	if err != nil {
-		return 0, fmt.Errorf("marshal payload: %w", err)
-	}
-
-	// Build form data
-	formData := url.Values{}
-	formData.Set("payload", string(payloadJSON))
-	formData.Set("csrf_bd_gem_nk", session.CSRFToken)
-
-	req, err := http.NewRequest("POST", baseURL+"/all-bids-data",
-		strings.NewReader(formData.Encode()))
-	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-	req.Header.Set("Referer", baseURL+"/all-bids")
-	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-
-	for _, cookie := range session.Cookies {
-		req.AddCookie(cookie)
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("read body: %w", err)
-	}
-
-	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return 0, fmt.Errorf("unmarshal: %w", err)
+		return 0, fmt.Errorf("fetch page: %w", err)
 	}
 
 	if apiResp.Code != 200 {
@@ -133,4 +87,11 @@ func scrapePage(session *Session, db *sql.DB, page int) (int, error) {
 	}
 
 	return apiResp.Response.Response.NumFound, nil
+}
+
+// DefaultPayloadJSON returns the JSON string for a default payload (used by tests)
+func DefaultPayloadJSON(page int) string {
+	p := DefaultPayload(page)
+	b, _ := json.Marshal(p)
+	return string(b)
 }

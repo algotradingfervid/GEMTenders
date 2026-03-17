@@ -1,13 +1,5 @@
 package main
 
-import "net/http"
-
-// Session holds CSRF token and cookies from browser bootstrap
-type Session struct {
-	CSRFToken string
-	Cookies   []*http.Cookie
-}
-
 // APIPayload is the POST body for /all-bids-data
 type APIPayload struct {
 	Page   int       `json:"page"`
