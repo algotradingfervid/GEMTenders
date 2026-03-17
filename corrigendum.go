@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -218,6 +219,20 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int) err
 		return nil
 	}
 
+	// Create error log file with timestamp
+	errLogPath := fmt.Sprintf("corrigendum_errors_%s.log", time.Now().Format("2006-01-02_15-04-05"))
+	errFile, err := os.OpenFile(errLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Printf("[corrigendum] Warning: could not create error log %s: %v", errLogPath, err)
+	} else {
+		defer errFile.Close()
+		log.Printf("[corrigendum] Error log: %s", errLogPath)
+	}
+	errLogger := log.New(io.Discard, "", log.LstdFlags)
+	if errFile != nil {
+		errLogger = log.New(errFile, "", log.LstdFlags)
+	}
+
 	log.Printf("[corrigendum] Checking %d active bids (%d workers, %d req/s)", len(bidIDs), workers, rps)
 
 	limiter := rate.NewLimiter(rate.Limit(rps), rps*2)
@@ -234,6 +249,7 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int) err
 		updated int64
 		errors  int64
 		total   = int64(len(bidIDs))
+		mu      sync.Mutex
 	)
 
 	for w := 0; w < workers; w++ {
@@ -248,6 +264,9 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int) err
 				changed, err := processOneBid(sp, db, bidID, limiter)
 				if err != nil {
 					log.Printf("[corrigendum] Error bid_id=%d: %v", bidID, err)
+					mu.Lock()
+					errLogger.Printf("bid_id=%d error=%v", bidID, err)
+					mu.Unlock()
 					atomic.AddInt64(&errors, 1)
 					sp = pool.Next()
 					continue
@@ -268,8 +287,12 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int) err
 	}
 
 	wg.Wait()
+	errCount := atomic.LoadInt64(&errors)
 	log.Printf("[corrigendum] Done: %d checked, %d updated, %d errors",
-		checked, updated, errors)
+		checked, updated, errCount)
+	if errCount > 0 && errFile != nil {
+		log.Printf("[corrigendum] Failed bid IDs logged to %s", errLogPath)
+	}
 	return nil
 }
 
