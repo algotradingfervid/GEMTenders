@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -79,5 +80,37 @@ func TestParseCorrigendumCount(t *testing.T) {
 	count = ParseCorrigendumCount(sampleCorrigendumNoDocs)
 	if count != 1 {
 		t.Errorf("expected 1 well block, got %d", count)
+	}
+}
+
+func TestParseOtherDetailsResponse(t *testing.T) {
+	raw := `{"status":1,"code":200,"message":"Request processed successfully","response":{"corrigendum":true,"representation":false}}`
+
+	var resp OtherDetailsResponse
+	err := json.Unmarshal([]byte(raw), &resp)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if !resp.Response.Corrigendum {
+		t.Error("expected corrigendum=true")
+	}
+	if resp.Response.Representation {
+		t.Error("expected representation=false")
+	}
+}
+
+func TestParseOtherDetailsBothTrue(t *testing.T) {
+	raw := `{"status":1,"code":200,"message":"Request processed successfully","response":{"corrigendum":true,"representation":true}}`
+
+	var resp OtherDetailsResponse
+	err := json.Unmarshal([]byte(raw), &resp)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if !resp.Response.Corrigendum {
+		t.Error("expected corrigendum=true")
+	}
+	if !resp.Response.Representation {
+		t.Error("expected representation=true")
 	}
 }
