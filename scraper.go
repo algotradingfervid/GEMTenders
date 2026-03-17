@@ -1,128 +1,177 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
-func DefaultPayload(page int) APIPayload {
-	return APIPayload{
-		Page: page,
-		Param: APIParam{
-			SearchBid:  "",
-			SearchType: "fullText",
+func DefaultPayload(page int) map[string]interface{} {
+	payload := map[string]interface{}{
+		"param": map[string]interface{}{
+			"searchBid":  "",
+			"searchType": "fullText",
 		},
-		Filter: APIFilter{
-			BidStatusType: "ongoing_bids",
-			ByType:        "all",
-			HighBidValue:  "",
-			ByEndDate:     APIDateRange{From: "", To: ""},
-			Sort:          "Bid-End-Date-Oldest",
+		"filter": map[string]interface{}{
+			"bidStatusType": "ongoing_bids",
+			"byType":        "all",
+			"highBidValue":  "",
+			"byEndDate":     map[string]string{"from": "", "to": ""},
+			"sort":          "Bid-End-Date-Oldest",
 		},
 	}
+	if page > 1 {
+		payload["page"] = page
+	}
+	return payload
 }
 
-func ScrapeBids(session *BrowserSession, db *sql.DB, workers int, delayMs int) error {
-	startPage := GetLastScrapedPage(db) + 1
+func ScrapeBids(pool *SessionPool, db *sql.DB, workers int, rps int) error {
+	// First request to get total count
+	sp := pool.Next()
+	log.Println("Fetching page 1 to get total count...")
 
-	// First single request to get total count
-	log.Printf("Fetching page %d to get total count...", startPage)
-	apiResp, err := session.FetchBidsPage(startPage)
+	apiResp, err := fetchPage(sp, 1)
 	if err != nil {
-		return fmt.Errorf("page %d: %w", startPage, err)
-	}
-	if apiResp.Code != 200 {
-		return fmt.Errorf("api error: %s", apiResp.Message)
+		return fmt.Errorf("page 1: %w", err)
 	}
 
-	// Insert first page results
-	docs := apiResp.Response.Response.Docs
-	if len(docs) > 0 {
-		inserted, _ := InsertBidsBatch(db, docs)
-		if inserted > 0 {
-			log.Printf("Page %d: inserted %d new bids", startPage, inserted)
-		}
+	if len(apiResp.Response.Response.Docs) > 0 {
+		InsertBidsBatch(db, apiResp.Response.Response.Docs)
 	}
 
 	totalFound := apiResp.Response.Response.NumFound
+	startPage := GetLastScrapedPage(db) + 1
 	totalPages := (totalFound + 9) / 10
-	log.Printf("Total records: %d, Total pages: %d, Workers: %d", totalFound, totalPages, workers)
+	log.Printf("Total records: %d, Total pages: %d, Start page: %d, Workers: %d, Rate: %d req/s",
+		totalFound, totalPages, startPage, workers, rps)
 
-	// Process remaining pages in batches
-	for batchStart := startPage + 1; batchStart <= totalPages; batchStart += workers {
-		batchEnd := batchStart + workers - 1
-		if batchEnd > totalPages {
-			batchEnd = totalPages
-		}
+	// Rate limiter: rps requests per second with burst of rps*2
+	limiter := rate.NewLimiter(rate.Limit(rps), rps*2)
 
-		// Build page list for this batch
-		var pages []int
-		for p := batchStart; p <= batchEnd; p++ {
-			pages = append(pages, p)
-		}
+	// Page queue
+	pages := make(chan int, totalPages)
+	for p := startPage; p <= totalPages; p++ {
+		pages <- p
+	}
+	close(pages)
 
-		if delayMs > 0 {
-			time.Sleep(time.Duration(delayMs) * time.Millisecond)
-		}
+	var (
+		wg      sync.WaitGroup
+		scraped int64
+		errors  int64
+		mu      sync.Mutex
+	)
 
-		results, err := session.FetchBidsPagesBatch(pages)
-		if err != nil {
-			log.Printf("Batch %d-%d failed: %v (retrying individually)", batchStart, batchEnd, err)
-			// Fallback: try pages individually
-			for _, p := range pages {
-				time.Sleep(time.Duration(delayMs) * time.Millisecond)
-				resp, err := session.FetchBidsPage(p)
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			sp := pool.Next()
+
+			for page := range pages {
+				// Rate limit
+				limiter.Wait(context.Background())
+
+				resp, err := fetchPage(sp, page)
 				if err != nil {
-					log.Printf("Page %d failed: %v (skipping)", p, err)
-					continue
+					// Retry with different session after backoff
+					time.Sleep(3 * time.Second)
+					sp = pool.Next()
+					limiter.Wait(context.Background())
+					resp, err = fetchPage(sp, page)
+					if err != nil {
+						log.Printf("[W%d] Page %d failed: %v", workerID, page, err)
+						atomic.AddInt64(&errors, 1)
+						continue
+					}
 				}
-				if resp.Code == 200 && len(resp.Response.Response.Docs) > 0 {
-					InsertBidsBatch(db, resp.Response.Response.Docs)
+
+				docs := resp.Response.Response.Docs
+				if len(docs) > 0 {
+					mu.Lock()
+					inserted, _ := InsertBidsBatch(db, docs)
+					mu.Unlock()
+					atomic.AddInt64(&scraped, int64(inserted))
+				}
+
+				done := atomic.LoadInt64(&scraped)
+				if done > 0 && done%500 == 0 {
+					log.Printf("Progress: %d bids scraped, %d errors", done, atomic.LoadInt64(&errors))
 				}
 			}
-			continue
-		}
-
-		// Parse and insert each page's results
-		totalInserted := 0
-		for i, resultStr := range results {
-			if resultStr == "" {
-				log.Printf("Page %d: empty result (skipped)", pages[i])
-				continue
-			}
-
-			var resp APIResponse
-			if err := json.Unmarshal([]byte(resultStr), &resp); err != nil {
-				log.Printf("Page %d: parse error: %v", pages[i], err)
-				continue
-			}
-			if resp.Code != 200 || len(resp.Response.Response.Docs) == 0 {
-				continue
-			}
-			inserted, err := InsertBidsBatch(db, resp.Response.Response.Docs)
-			if err != nil {
-				log.Printf("Page %d: insert error: %v", pages[i], err)
-				continue
-			}
-			totalInserted += inserted
-		}
-
-		if totalInserted > 0 {
-			log.Printf("Batch %d-%d: inserted %d new bids", batchStart, batchEnd, totalInserted)
-		}
-
-		// Progress log every 10 batches
-		if (batchStart-startPage)/(workers) % 10 == 0 {
-			total, downloaded, _ := GetBidCount(db)
-			log.Printf("Progress: pages %d-%d/%d, %d bids scraped, %d PDFs downloaded",
-				batchStart, batchEnd, totalPages, total, downloaded)
-		}
+		}(w)
 	}
 
+	wg.Wait()
+
 	total, _, _ := GetBidCount(db)
-	log.Printf("Scraping complete. Total bids in DB: %d", total)
+	log.Printf("Scraping complete. Total bids in DB: %d, Errors: %d", total, errors)
 	return nil
+}
+
+func fetchPage(sp *SessionPair, page int) (*APIResponse, error) {
+	payload := DefaultPayload(page)
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	formData := url.Values{}
+	formData.Set("payload", string(payloadJSON))
+	formData.Set("csrf_bd_gem_nk", sp.CSRFToken)
+
+	req, err := http.NewRequest("POST", baseURL+"/all-bids-data",
+		strings.NewReader(formData.Encode()))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9,hi;q=0.8")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("Host", "bidplus.gem.gov.in")
+	req.Header.Set("Origin", baseURL)
+	req.Header.Set("Referer", baseURL+"/all-bids")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+
+	resp, err := sp.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("unmarshal: %w (body: %.200s)", err, string(body))
+	}
+
+	if apiResp.Code != 200 {
+		return nil, fmt.Errorf("api error: code=%d msg=%s", apiResp.Code, apiResp.Message)
+	}
+
+	return &apiResp, nil
 }
