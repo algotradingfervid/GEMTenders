@@ -25,6 +25,31 @@ func StartServer(db *sql.DB, downloadDir string, addr string) {
 	})
 	r.GET("/search", SearchHandler(db))
 
+	r.GET("/tender/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		bid, err := GetBidByID(db, id)
+		if err != nil {
+			c.HTML(404, "index.tmpl", nil)
+			return
+		}
+
+		pdfID := bid.BidIDParent
+		if pdfID == 0 {
+			pdfID = bid.BidID
+		}
+
+		c.HTML(200, "tender.tmpl", gin.H{
+			"Bid":   bid,
+			"PDFID": pdfID,
+		})
+	})
+
+	r.GET("/pdf/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		filePath := downloadDir + "/GeM-Bidding-" + id + ".pdf"
+		c.File(filePath)
+	})
+
 	log.Printf("Starting server on %s", addr)
 	r.Run(addr)
 }

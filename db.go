@@ -239,6 +239,23 @@ type BidResult struct {
 	DepartmentName  string
 }
 
+func GetBidByID(db *sql.DB, id string) (*BidResult, error) {
+	var r BidResult
+	err := db.QueryRow(`
+		SELECT id, bid_id, bid_number, bid_number_parent, bid_id_parent,
+		       category_name, total_quantity, start_date, end_date,
+		       is_high_value, ministry_name, department_name
+		FROM bids WHERE id = ?
+	`, id).Scan(&r.ID, &r.BidID, &r.BidNumber, &r.BidNumberParent,
+		&r.BidIDParent, &r.CategoryName, &r.TotalQuantity,
+		&r.StartDate, &r.EndDate, &r.IsHighValue,
+		&r.MinistryName, &r.DepartmentName)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 func SearchBids(db *sql.DB, query string, limit int, offset int) ([]BidResult, int, error) {
 	if query == "" {
 		return recentBids(db, limit, offset)

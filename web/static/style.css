@@ -23,3 +23,15 @@ main { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 1.5rem; }
 .pagination button { padding: 0.5rem 1rem; border: 1px solid #ddd; border-radius: 6px; background: white; cursor: pointer; }
 .pagination button:hover { background: #f0f0f0; }
+.back-link { display: inline-block; margin-bottom: 1rem; color: #1a365d; text-decoration: none; font-size: 0.9rem; }
+.back-link:hover { text-decoration: underline; }
+.tender-detail { background: white; border-radius: 8px; padding: 1.5rem; border: 1px solid #e2e8f0; margin-bottom: 1.5rem; }
+.tender-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; }
+.tender-header h2 { font-size: 1.25rem; color: #1a365d; }
+.tender-meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; }
+.meta-item { display: flex; flex-direction: column; gap: 0.2rem; }
+.meta-label { font-size: 0.75rem; text-transform: uppercase; color: #999; font-weight: 600; letter-spacing: 0.05em; }
+.meta-value { font-size: 0.95rem; }
+.pdf-container { background: white; border-radius: 8px; padding: 1.5rem; border: 1px solid #e2e8f0; }
+.pdf-container h3 { margin-bottom: 1rem; font-size: 1.1rem; color: #333; }
+.pdf-container iframe { border: 1px solid #e2e8f0; border-radius: 4px; }

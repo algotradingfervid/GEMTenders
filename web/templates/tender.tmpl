@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Bid.BidNumber }} — GEM Tender</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1><a href="/" style="color:white;text-decoration:none;">GEM Tender Discovery</a></h1>
+    </header>
+    <main>
+        <a href="/" class="back-link">← Back to search</a>
+
+        <div class="tender-detail">
+            <div class="tender-header">
+                <h2>{{ .Bid.BidNumber }}</h2>
+                {{ if eq .Bid.IsHighValue 1 }}<span class="badge high-value">High Value</span>{{ end }}
+            </div>
+
+            <div class="tender-meta-grid">
+                <div class="meta-item">
+                    <span class="meta-label">Category</span>
+                    <span class="meta-value">{{ .Bid.CategoryName }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Ministry</span>
+                    <span class="meta-value">{{ .Bid.MinistryName }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Department</span>
+                    <span class="meta-value">{{ .Bid.DepartmentName }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Quantity</span>
+                    <span class="meta-value">{{ .Bid.TotalQuantity }}</span>
+                </div>
+                {{ if .Bid.BidNumberParent }}
+                <div class="meta-item">
+                    <span class="meta-label">Parent Bid</span>
+                    <span class="meta-value">{{ .Bid.BidNumberParent }}</span>
+                </div>
+                {{ end }}
+                <div class="meta-item">
+                    <span class="meta-label">Start Date</span>
+                    <span class="meta-value">{{ .Bid.StartDate }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">End Date</span>
+                    <span class="meta-value">{{ .Bid.EndDate }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="pdf-container">
+            <h3>Bid Document</h3>
+            <iframe src="/pdf/{{ .PDFID }}" width="100%" height="800px"></iframe>
+        </div>
+    </main>
+</body>
+</html>
