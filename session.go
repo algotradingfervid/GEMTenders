@@ -39,10 +39,24 @@ func BootstrapSessions(count int) (*SessionPool, error) {
 	pool := &SessionPool{}
 
 	for i := 0; i < count; i++ {
-		sp, err := createSession()
+		var sp *SessionPair
+		var err error
+		// Retry up to 3 times with backoff
+		for attempt := 1; attempt <= 3; attempt++ {
+			sp, err = createSession()
+			if err == nil {
+				break
+			}
+			log.Printf("Session %d attempt %d failed: %v", i+1, attempt, err)
+			if attempt < 3 {
+				backoff := time.Duration(attempt*10) * time.Second
+				log.Printf("Retrying in %s...", backoff)
+				time.Sleep(backoff)
+			}
+		}
 		if err != nil {
-			log.Printf("Session %d failed: %v", i+1, err)
 			if len(pool.Pairs) > 0 {
+				log.Printf("Session %d failed after retries, continuing with %d sessions", i+1, len(pool.Pairs))
 				continue
 			}
 			return nil, fmt.Errorf("no sessions could be created: %w", err)
