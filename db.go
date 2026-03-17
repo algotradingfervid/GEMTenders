@@ -37,6 +37,30 @@ CREATE TABLE IF NOT EXISTS bids (
 CREATE INDEX IF NOT EXISTS idx_bid_id_parent ON bids(bid_id_parent);
 CREATE INDEX IF NOT EXISTS idx_pdf_downloaded ON bids(pdf_downloaded);
 CREATE INDEX IF NOT EXISTS idx_bid_number ON bids(bid_number);
+
+CREATE TABLE IF NOT EXISTS bid_other_details (
+	bid_id INTEGER PRIMARY KEY,
+	has_corrigendum INTEGER DEFAULT 0,
+	has_representation INTEGER DEFAULT 0,
+	corrigendum_html TEXT DEFAULT '',
+	representation_html TEXT DEFAULT '',
+	corrigendum_count INTEGER DEFAULT 0,
+	latest_end_date TEXT DEFAULT '',
+	last_checked TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS corrigendum_documents (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	bid_id INTEGER NOT NULL,
+	corrigendum_id INTEGER NOT NULL,
+	download_url TEXT NOT NULL,
+	modified_on TEXT DEFAULT '',
+	downloaded INTEGER DEFAULT 0,
+	UNIQUE(bid_id, download_url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_corr_doc_bid ON corrigendum_documents(bid_id);
+CREATE INDEX IF NOT EXISTS idx_corr_doc_pending ON corrigendum_documents(downloaded);
 `
 
 func InitDB(dbPath string) (*sql.DB, error) {
@@ -47,6 +71,10 @@ func InitDB(dbPath string) (*sql.DB, error) {
 	if _, err := db.Exec(createTableSQL); err != nil {
 		return nil, fmt.Errorf("create table: %w", err)
 	}
+	// Migration: add end_date_original column if missing
+	db.Exec("ALTER TABLE bids ADD COLUMN end_date_original TEXT DEFAULT ''")
+	// Backfill: set end_date_original = end_date where not yet set
+	db.Exec("UPDATE bids SET end_date_original = end_date WHERE end_date_original = '' AND end_date != ''")
 	return db, nil
 }
 

@@ -86,6 +86,36 @@ func TestInsertAndQuery(t *testing.T) {
 	}
 }
 
+func TestCorrigendumTablesExist(t *testing.T) {
+	dbPath := "/tmp/test_gem_corr.db"
+	defer os.Remove(dbPath)
+
+	db, err := InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	defer db.Close()
+
+	// bid_other_details table
+	var name string
+	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='bid_other_details'").Scan(&name)
+	if err != nil {
+		t.Fatalf("bid_other_details table not created: %v", err)
+	}
+
+	// corrigendum_documents table
+	err = db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='corrigendum_documents'").Scan(&name)
+	if err != nil {
+		t.Fatalf("corrigendum_documents table not created: %v", err)
+	}
+
+	// end_date_original column exists on bids
+	_, err = db.Exec("SELECT end_date_original FROM bids LIMIT 1")
+	if err != nil {
+		t.Fatalf("end_date_original column not found: %v", err)
+	}
+}
+
 func TestInsertBatchAndDuplicates(t *testing.T) {
 	dbPath := "/tmp/test_gem3.db"
 	defer os.Remove(dbPath)
