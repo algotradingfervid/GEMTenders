@@ -15,7 +15,7 @@
         <div class="search-container">
             <input type="search"
                    name="q"
-                   placeholder="Search tenders..."
+                   placeholder="Search tenders by keyword, bid number, ministry, department..."
                    hx-get="/search"
                    hx-trigger="input changed delay:300ms, search"
                    hx-target="#results"
@@ -23,7 +23,7 @@
                    autocomplete="off">
             <span id="spinner" class="htmx-indicator">Searching...</span>
         </div>
-        <div id="results"></div>
+        <div id="results" hx-get="/search?q=&page=1" hx-trigger="load" hx-indicator="#spinner"></div>
     </main>
 </body>
 </html>

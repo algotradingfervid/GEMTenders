@@ -27,17 +27,21 @@ func SearchHandler(db *sql.DB) gin.HandlerFunc {
 		}
 
 		totalPages := (total + limit - 1) / limit
+		startRecord := offset + 1
+		endRecord := offset + len(results)
 
 		c.HTML(http.StatusOK, "results.tmpl", gin.H{
-			"Results":    results,
-			"Query":      query,
-			"Total":      total,
-			"Page":       page,
-			"TotalPages": totalPages,
-			"HasPrev":    page > 1,
-			"HasNext":    page < totalPages,
-			"PrevPage":   page - 1,
-			"NextPage":   page + 1,
+			"Results":     results,
+			"Query":       query,
+			"Total":       total,
+			"Page":        page,
+			"TotalPages":  totalPages,
+			"HasPrev":     page > 1,
+			"HasNext":     page < totalPages,
+			"PrevPage":    page - 1,
+			"NextPage":    page + 1,
+			"StartRecord": startRecord,
+			"EndRecord":   endRecord,
 		})
 	}
 }

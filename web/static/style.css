@@ -2,27 +2,56 @@
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
 header { background: #1a365d; color: white; padding: 1rem 2rem; }
 header h1 { font-size: 1.5rem; font-weight: 600; }
+header h1 a { color: white; text-decoration: none; }
 main { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
-.search-container { margin-bottom: 2rem; }
+
+/* Search */
+.search-container { margin-bottom: 1.5rem; }
 .search-container input[type="search"] { width: 100%; padding: 0.75rem 1rem; font-size: 1rem; border: 2px solid #ddd; border-radius: 8px; outline: none; }
 .search-container input[type="search"]:focus { border-color: #1a365d; }
 .htmx-indicator { display: none; margin-left: 0.5rem; color: #666; }
 .htmx-request .htmx-indicator { display: inline; }
-.results-header { margin-bottom: 1rem; color: #666; font-size: 0.9rem; }
-.result-card { display: block; background: white; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; text-decoration: none; color: inherit; border: 1px solid #e2e8f0; transition: border-color 0.15s; }
-.result-card:hover { border-color: #1a365d; }
-.result-top { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
-.bid-number { font-weight: 600; color: #1a365d; font-size: 0.9rem; }
-.badge { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 600; }
+.htmx-request.htmx-indicator { display: inline; }
+
+/* Results header */
+.results-header { margin-bottom: 1rem; color: #666; font-size: 0.9rem; padding-bottom: 0.5rem; border-bottom: 1px solid #e2e8f0; }
+
+/* Result cards — GEM portal style */
+.result-card { display: block; background: white; border-radius: 4px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; text-decoration: none; color: inherit; border: 1px solid #e2e8f0; border-left: 4px solid #d69e2e; transition: box-shadow 0.15s; cursor: pointer; }
+.result-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+
+.result-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px solid #f0f0f0; }
+.bid-numbers { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.bid-numbers .label { font-size: 0.8rem; color: #666; }
+.bid-number { font-weight: 600; color: #1a365d; font-size: 0.85rem; }
+.bid-number-parent { font-weight: 600; color: #2b6cb0; font-size: 0.85rem; }
+.arrow { color: #999; font-size: 0.8rem; }
+
+.badge { font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; white-space: nowrap; }
 .high-value { background: #fef3c7; color: #92400e; }
-.result-category { font-size: 0.95rem; margin-bottom: 0.5rem; line-height: 1.4; }
-.result-meta { font-size: 0.85rem; color: #666; margin-bottom: 0.25rem; }
-.result-dates { font-size: 0.85rem; color: #888; display: flex; gap: 1rem; }
+
+.result-card-body { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+@media (max-width: 768px) { .result-card-body { grid-template-columns: 1fr; } }
+
+.result-row { margin-bottom: 0.3rem; }
+.result-row .label { font-size: 0.75rem; color: #888; display: block; }
+.result-row .value { font-size: 0.9rem; color: #333; }
+
+.ministry-name { font-size: 0.9rem; color: #2b6cb0; font-weight: 500; }
+.dept-name { font-size: 0.85rem; color: #666; }
+
+.date-start { color: #38a169; }
+.date-end { color: #e53e3e; }
+
 .no-results { text-align: center; padding: 3rem; color: #999; }
 .error { background: #fee2e2; color: #991b1b; padding: 1rem; border-radius: 8px; }
-.pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 1.5rem; }
-.pagination button { padding: 0.5rem 1rem; border: 1px solid #ddd; border-radius: 6px; background: white; cursor: pointer; }
-.pagination button:hover { background: #f0f0f0; }
+
+/* Pagination */
+.pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 1.5rem; padding: 1rem 0; }
+.pagination button { padding: 0.5rem 1rem; border: 1px solid #ddd; border-radius: 6px; background: white; cursor: pointer; font-size: 0.9rem; }
+.pagination button:hover { background: #1a365d; color: white; border-color: #1a365d; }
+
+/* Detail page */
 .back-link { display: inline-block; margin-bottom: 1rem; color: #1a365d; text-decoration: none; font-size: 0.9rem; }
 .back-link:hover { text-decoration: underline; }
 .tender-detail { background: white; border-radius: 8px; padding: 1.5rem; border: 1px solid #e2e8f0; margin-bottom: 1.5rem; }

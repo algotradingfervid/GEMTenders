@@ -2,22 +2,50 @@
 <div class="error">Search error: {{ .Error }}</div>
 {{ else }}
 <div class="results-header">
-    <span>{{ .Total }} tenders found</span>
+    <span>Showing {{ .StartRecord }} - {{ .EndRecord }} records of {{ .Total }} records</span>
 </div>
 {{ range .Results }}
 <a href="/tender/{{ .ID }}" class="result-card">
-    <div class="result-top">
-        <span class="bid-number">{{ .BidNumber }}</span>
+    <div class="result-card-header">
+        <div class="bid-numbers">
+            <span class="label">Bid No:</span>
+            <span class="bid-number">{{ .BidNumber }}</span>
+            {{ if .BidNumberParent }}
+            <span class="arrow">→</span>
+            <span class="label">Parent:</span>
+            <span class="bid-number-parent">{{ .BidNumberParent }}</span>
+            {{ end }}
+        </div>
         {{ if eq .IsHighValue 1 }}<span class="badge high-value">High Value</span>{{ end }}
     </div>
-    <div class="result-category">{{ .CategoryName }}</div>
-    <div class="result-meta">
-        <span>{{ .MinistryName }}</span>
-        {{ if .DepartmentName }}<span> · {{ .DepartmentName }}</span>{{ end }}
-    </div>
-    <div class="result-dates">
-        <span>Qty: {{ .TotalQuantity }}</span>
-        <span>End: {{ .EndDate }}</span>
+    <div class="result-card-body">
+        <div class="result-left">
+            <div class="result-row">
+                <span class="label">Items:</span>
+                <span class="value">{{ .CategoryName }}</span>
+            </div>
+            <div class="result-row">
+                <span class="label">Quantity:</span>
+                <span class="value">{{ .TotalQuantity }}</span>
+            </div>
+        </div>
+        <div class="result-middle">
+            <div class="result-row">
+                <span class="label">Department Name And Address:</span>
+            </div>
+            <div class="ministry-name">{{ .MinistryName }}</div>
+            {{ if .DepartmentName }}<div class="dept-name">{{ .DepartmentName }}</div>{{ end }}
+        </div>
+        <div class="result-right">
+            <div class="result-row">
+                <span class="label">Start Date:</span>
+                <span class="value date-start">{{ .StartDate }}</span>
+            </div>
+            <div class="result-row">
+                <span class="label">End Date:</span>
+                <span class="value date-end">{{ .EndDate }}</span>
+            </div>
+        </div>
     </div>
 </a>
 {{ else }}
