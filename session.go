@@ -44,7 +44,7 @@ func BootstrapSessions(count int) (*SessionPool, error) {
 		var sp *SessionPair
 		var err error
 		for attempt := 1; attempt <= 5; attempt++ {
-			sp, err = createSession()
+			sp, err = createSessionAuto()
 			if err == nil {
 				break
 			}
@@ -146,4 +146,15 @@ func createSession() (*SessionPair, error) {
 		CSRFToken: string(matches[1]),
 		Client:    client,
 	}, nil
+}
+
+// createSessionAuto tries Playwright first (real browser, reliable WAF bypass),
+// falls back to raw HTTP if Playwright is unavailable or fails.
+func createSessionAuto() (*SessionPair, error) {
+	sp, err := createSessionPlaywright()
+	if err == nil {
+		return sp, nil
+	}
+	log.Printf("[session] Playwright failed: %v — falling back to raw HTTP", err)
+	return createSession()
 }
