@@ -37,7 +37,10 @@ func DefaultPayload(page int) map[string]interface{} {
 	return payload
 }
 
-func ScrapeBids(pool *SessionPool, db *sql.DB, workers int, rps int) error {
+// ScrapeBids launches `scrapers` parallel scraper instances, each offset by `staggerSec` seconds.
+// Each scraper independently scrapes all pages using its own workers and rate limiter.
+// The staggered snapshots catch records that shift between pages on the live API.
+func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, workersPerScraper int, rps int) error {
 	// First request to get total count
 	sp := pool.Next()
 	log.Println("Fetching page 1 to get total count...")
@@ -53,15 +56,39 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, workers int, rps int) error {
 
 	totalFound := apiResp.Response.Response.NumFound
 	totalPages := (totalFound + 9) / 10
-	log.Printf("Total records: %d, Total pages: %d, Workers: %d, Rate: %d req/s",
-		totalFound, totalPages, workers, rps)
+	log.Printf("Total records: %d, Total pages: %d", totalFound, totalPages)
+	log.Printf("Launching %d parallel scrapers (stagger: %ds, workers/scraper: %d, rate: %d req/s each)",
+		scrapers, staggerSec, workersPerScraper, rps)
 
-	// Rate limiter: rps requests per second with burst of rps*2
+	var wg sync.WaitGroup
+
+	for s := 0; s < scrapers; s++ {
+		if s > 0 {
+			log.Printf("Scraper %d starting in %ds...", s+1, staggerSec)
+			time.Sleep(time.Duration(staggerSec) * time.Second)
+		}
+
+		wg.Add(1)
+		go func(scraperID int) {
+			defer wg.Done()
+			runScraper(scraperID, pool, db, totalPages, workersPerScraper, rps)
+		}(s + 1)
+	}
+
+	wg.Wait()
+
+	total, _, _ := GetBidCount(db)
+	log.Printf("All scrapers complete. Total unique bids in DB: %d", total)
+	return nil
+}
+
+func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, workers int, rps int) {
+	log.Printf("[S%d] Starting: %d pages, %d workers, %d req/s", scraperID, totalPages, workers, rps)
+
 	limiter := rate.NewLimiter(rate.Limit(rps), rps*2)
 
-	// Queue ALL pages — duplicates handled by INSERT OR IGNORE
 	pages := make(chan int, totalPages)
-	for p := 2; p <= totalPages; p++ {
+	for p := 1; p <= totalPages; p++ {
 		pages <- p
 	}
 	close(pages)
@@ -80,18 +107,15 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, workers int, rps int) error {
 			sp := pool.Next()
 
 			for page := range pages {
-				// Rate limit
 				limiter.Wait(context.Background())
 
 				resp, err := fetchPage(sp, page)
 				if err != nil {
-					// Retry with different session after backoff
 					time.Sleep(3 * time.Second)
 					sp = pool.Next()
 					limiter.Wait(context.Background())
 					resp, err = fetchPage(sp, page)
 					if err != nil {
-						log.Printf("[W%d] Page %d failed: %v", workerID, page, err)
 						atomic.AddInt64(&errors, 1)
 						continue
 					}
@@ -106,18 +130,18 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, workers int, rps int) error {
 				}
 
 				done := atomic.LoadInt64(&scraped)
-				if done > 0 && done%500 == 0 {
-					log.Printf("Progress: %d bids scraped, %d errors", done, atomic.LoadInt64(&errors))
+				if done > 0 && done%1000 == 0 {
+					log.Printf("[S%d] Progress: %d new bids, %d errors",
+						scraperID, done, atomic.LoadInt64(&errors))
 				}
 			}
 		}(w)
 	}
 
 	wg.Wait()
-
 	total, _, _ := GetBidCount(db)
-	log.Printf("Scraping complete. Total bids in DB: %d, Errors: %d", total, errors)
-	return nil
+	log.Printf("[S%d] Done: %d new bids inserted, %d errors, DB total: %d",
+		scraperID, scraped, errors, total)
 }
 
 func fetchPage(sp *SessionPair, page int) (*APIResponse, error) {

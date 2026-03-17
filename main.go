@@ -10,10 +10,12 @@ func main() {
 	dbPath := flag.String("db", "gems.db", "SQLite database path")
 	downloadDir := flag.String("downloads", "downloads", "PDF download directory")
 	sessions := flag.Int("sessions", 10, "Number of sessions to bootstrap")
-	scrapeWorkers := flag.Int("scrape-workers", 20, "Number of scraping goroutines")
+	scrapers := flag.Int("scrapers", 5, "Number of parallel scraper instances")
+	staggerSec := flag.Int("stagger", 30, "Seconds between scraper launches")
+	scrapeWorkers := flag.Int("scrape-workers", 20, "Workers per scraper instance")
+	scrapeRPS := flag.Int("scrape-rps", 20, "Requests per second per scraper")
 	downloadWorkers := flag.Int("download-workers", 10, "Number of PDF download goroutines")
-	scrapeRPS := flag.Int("scrape-rps", 20, "Scraping requests per second (global)")
-	downloadRPS := flag.Int("download-rps", 10, "Download requests per second (global)")
+	downloadRPS := flag.Int("download-rps", 10, "Download requests per second")
 	skipScrape := flag.Bool("skip-scrape", false, "Skip scraping, only download PDFs")
 	skipDownload := flag.Bool("skip-download", false, "Skip PDF downloads, only scrape listings")
 	flag.Parse()
@@ -33,7 +35,7 @@ func main() {
 
 	if !*skipScrape {
 		log.Println("=== Phase 1: Scraping bid listings ===")
-		if err := ScrapeBids(pool, db, *scrapeWorkers, *scrapeRPS); err != nil {
+		if err := ScrapeBids(pool, db, *scrapers, *staggerSec, *scrapeWorkers, *scrapeRPS); err != nil {
 			log.Printf("Scraping error: %v", err)
 			os.Exit(1)
 		}
