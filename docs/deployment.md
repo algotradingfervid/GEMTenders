@@ -47,7 +47,7 @@ sudo yum install nss atk at-spi2-atk cups-libs libxkbcommon \
 git clone <repo-url> && cd GEMTenders
 
 # Build the single binary
-CGO_ENABLED=1 go build -o gemscraper .
+CGO_ENABLED=1 go build -tags "fts5" -o gemscraper .
 
 # Verify
 ./gemscraper
@@ -97,7 +97,7 @@ All configuration is via CLI flags. No config files needed.
 
 ```bash
 # 1. Build
-CGO_ENABLED=1 go build -o gemscraper .
+CGO_ENABLED=1 go build -tags "fts5" -o gemscraper .
 
 # 2. Scrape all bid listings + check corrigendums
 #    First run: Chromium auto-installs (~30s), then scrapes ~42K bids (~30min)
