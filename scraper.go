@@ -52,17 +52,16 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, workers int, rps int) error {
 	}
 
 	totalFound := apiResp.Response.Response.NumFound
-	startPage := GetLastScrapedPage(db) + 1
 	totalPages := (totalFound + 9) / 10
-	log.Printf("Total records: %d, Total pages: %d, Start page: %d, Workers: %d, Rate: %d req/s",
-		totalFound, totalPages, startPage, workers, rps)
+	log.Printf("Total records: %d, Total pages: %d, Workers: %d, Rate: %d req/s",
+		totalFound, totalPages, workers, rps)
 
 	// Rate limiter: rps requests per second with burst of rps*2
 	limiter := rate.NewLimiter(rate.Limit(rps), rps*2)
 
-	// Page queue
+	// Queue ALL pages — duplicates handled by INSERT OR IGNORE
 	pages := make(chan int, totalPages)
-	for p := startPage; p <= totalPages; p++ {
+	for p := 2; p <= totalPages; p++ {
 		pages <- p
 	}
 	close(pages)
