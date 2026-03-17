@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +12,8 @@ import (
 )
 
 const baseURL = "https://bidplus.gem.gov.in"
+
+const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 
 // SessionPair holds one CSRF token + HTTP client with cookie jar
 type SessionPair struct {
@@ -30,9 +33,6 @@ func (p *SessionPool) Next() *SessionPair {
 	return sp
 }
 
-// BootstrapSessions creates N sessions by visiting the main page,
-// collecting cookies via cookiejar, and extracting the CSRF token.
-// No browser needed — standard Go HTTP client.
 func BootstrapSessions(count int) (*SessionPool, error) {
 	log.Printf("Bootstrapping %d sessions...", count)
 
@@ -41,7 +41,6 @@ func BootstrapSessions(count int) (*SessionPool, error) {
 	for i := 0; i < count; i++ {
 		var sp *SessionPair
 		var err error
-		// Retry up to 3 times with backoff
 		for attempt := 1; attempt <= 3; attempt++ {
 			sp, err = createSession()
 			if err == nil {
@@ -84,14 +83,16 @@ func createSession() (*SessionPair, error) {
 		Jar:     jar,
 	}
 
-	// Visit the main page to collect cookies
 	req, err := http.NewRequest("GET", baseURL+"/all-bids", nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+
+	// Must match browser headers exactly — WAF checks Accept-Encoding pattern
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -99,12 +100,22 @@ func createSession() (*SessionPair, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	// Handle gzip manually since we set Accept-Encoding explicitly
+	var reader io.Reader = resp.Body
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gzReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("gzip reader: %w", err)
+		}
+		defer gzReader.Close()
+		reader = gzReader
+	}
+
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
-	// Extract CSRF token from page HTML
 	csrfRegex := regexp.MustCompile(`csrf_bd_gem_nk['\"]?\s*[:=]\s*['\"]([^'\"]+)['\"]`)
 	matches := csrfRegex.FindSubmatch(body)
 	if len(matches) < 2 {

@@ -108,8 +108,10 @@ func downloadPDF(sp *SessionPair, bidIDParent int, downloadDir string) error {
 		return err
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0")
+	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/pdf,application/x-pdf,*/*")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	req.Header.Set("Referer", baseURL+"/all-bids")
 
 	resp, err := sp.Client.Do(req)

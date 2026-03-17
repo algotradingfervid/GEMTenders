@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -162,14 +163,17 @@ func fetchPage(sp *SessionPair, page int) (*APIResponse, error) {
 	}
 
 	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9,hi;q=0.8")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("DNT", "1")
 	req.Header.Set("Host", "bidplus.gem.gov.in")
 	req.Header.Set("Origin", baseURL)
+	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Referer", baseURL+"/all-bids")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0")
+	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 
 	resp, err := sp.Client.Do(req)
@@ -182,7 +186,17 @@ func fetchPage(sp *SessionPair, page int) (*APIResponse, error) {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	var reader io.Reader = resp.Body
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gzReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("gzip reader: %w", err)
+		}
+		defer gzReader.Close()
+		reader = gzReader
+	}
+
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
