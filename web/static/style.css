@@ -8,3 +8,18 @@ main { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
 .search-container input[type="search"]:focus { border-color: #1a365d; }
 .htmx-indicator { display: none; margin-left: 0.5rem; color: #666; }
 .htmx-request .htmx-indicator { display: inline; }
+.results-header { margin-bottom: 1rem; color: #666; font-size: 0.9rem; }
+.result-card { display: block; background: white; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; text-decoration: none; color: inherit; border: 1px solid #e2e8f0; transition: border-color 0.15s; }
+.result-card:hover { border-color: #1a365d; }
+.result-top { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.bid-number { font-weight: 600; color: #1a365d; font-size: 0.9rem; }
+.badge { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 600; }
+.high-value { background: #fef3c7; color: #92400e; }
+.result-category { font-size: 0.95rem; margin-bottom: 0.5rem; line-height: 1.4; }
+.result-meta { font-size: 0.85rem; color: #666; margin-bottom: 0.25rem; }
+.result-dates { font-size: 0.85rem; color: #888; display: flex; gap: 1rem; }
+.no-results { text-align: center; padding: 3rem; color: #999; }
+.error { background: #fee2e2; color: #991b1b; padding: 1rem; border-radius: 8px; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 1.5rem; }
+.pagination button { padding: 0.5rem 1rem; border: 1px solid #ddd; border-radius: 6px; background: white; cursor: pointer; }
+.pagination button:hover { background: #f0f0f0; }

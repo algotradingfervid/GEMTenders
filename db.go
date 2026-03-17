@@ -195,3 +195,109 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
+
+func InitFTS(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE VIRTUAL TABLE IF NOT EXISTS bids_fts USING fts5(
+			bid_number,
+			bid_number_parent,
+			category_name,
+			ministry_name,
+			department_name,
+			content='bids',
+			content_rowid='rowid'
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create FTS table: %w", err)
+	}
+	return nil
+}
+
+func RebuildFTS(db *sql.DB) error {
+	log.Println("Rebuilding FTS index...")
+	_, err := db.Exec(`INSERT INTO bids_fts(bids_fts) VALUES('rebuild')`)
+	if err != nil {
+		return fmt.Errorf("rebuild FTS: %w", err)
+	}
+	log.Println("FTS index rebuilt")
+	return nil
+}
+
+type BidResult struct {
+	ID              string
+	BidID           int
+	BidNumber       string
+	BidNumberParent string
+	BidIDParent     int
+	CategoryName    string
+	TotalQuantity   int
+	StartDate       string
+	EndDate         string
+	IsHighValue     int
+	MinistryName    string
+	DepartmentName  string
+}
+
+func SearchBids(db *sql.DB, query string, limit int, offset int) ([]BidResult, int, error) {
+	if query == "" {
+		return recentBids(db, limit, offset)
+	}
+
+	var total int
+	err := db.QueryRow(`SELECT COUNT(*) FROM bids_fts WHERE bids_fts MATCH ?`, query).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count: %w", err)
+	}
+
+	rows, err := db.Query(`
+		SELECT b.id, b.bid_id, b.bid_number, b.bid_number_parent, b.bid_id_parent,
+		       b.category_name, b.total_quantity, b.start_date, b.end_date,
+		       b.is_high_value, b.ministry_name, b.department_name
+		FROM bids_fts f
+		JOIN bids b ON f.rowid = b.rowid
+		WHERE bids_fts MATCH ?
+		ORDER BY rank
+		LIMIT ? OFFSET ?
+	`, query, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("search: %w", err)
+	}
+	defer rows.Close()
+
+	return scanBidResults(rows, total)
+}
+
+func recentBids(db *sql.DB, limit int, offset int) ([]BidResult, int, error) {
+	var total int
+	db.QueryRow("SELECT COUNT(*) FROM bids").Scan(&total)
+
+	rows, err := db.Query(`
+		SELECT id, bid_id, bid_number, bid_number_parent, bid_id_parent,
+		       category_name, total_quantity, start_date, end_date,
+		       is_high_value, ministry_name, department_name
+		FROM bids ORDER BY end_date DESC LIMIT ? OFFSET ?
+	`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	return scanBidResults(rows, total)
+}
+
+func scanBidResults(rows *sql.Rows, total int) ([]BidResult, int, error) {
+	var results []BidResult
+	for rows.Next() {
+		var r BidResult
+		err := rows.Scan(&r.ID, &r.BidID, &r.BidNumber, &r.BidNumberParent,
+			&r.BidIDParent, &r.CategoryName, &r.TotalQuantity,
+			&r.StartDate, &r.EndDate, &r.IsHighValue,
+			&r.MinistryName, &r.DepartmentName)
+		if err != nil {
+			return nil, 0, err
+		}
+		results = append(results, r)
+	}
+	return results, total, rows.Err()
+}

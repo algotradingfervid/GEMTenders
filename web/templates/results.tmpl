@@ -1,0 +1,38 @@
+{{ if .Error }}
+<div class="error">Search error: {{ .Error }}</div>
+{{ else }}
+<div class="results-header">
+    <span>{{ .Total }} tenders found</span>
+</div>
+{{ range .Results }}
+<a href="/tender/{{ .ID }}" class="result-card">
+    <div class="result-top">
+        <span class="bid-number">{{ .BidNumber }}</span>
+        {{ if eq .IsHighValue 1 }}<span class="badge high-value">High Value</span>{{ end }}
+    </div>
+    <div class="result-category">{{ .CategoryName }}</div>
+    <div class="result-meta">
+        <span>{{ .MinistryName }}</span>
+        {{ if .DepartmentName }}<span> · {{ .DepartmentName }}</span>{{ end }}
+    </div>
+    <div class="result-dates">
+        <span>Qty: {{ .TotalQuantity }}</span>
+        <span>End: {{ .EndDate }}</span>
+    </div>
+</a>
+{{ else }}
+<div class="no-results">No tenders found. Try a different search term.</div>
+{{ end }}
+
+{{ if gt .TotalPages 1 }}
+<div class="pagination">
+    {{ if .HasPrev }}
+    <button hx-get="/search?q={{ .Query }}&page={{ .PrevPage }}" hx-target="#results">← Previous</button>
+    {{ end }}
+    <span>Page {{ .Page }} of {{ .TotalPages }}</span>
+    {{ if .HasNext }}
+    <button hx-get="/search?q={{ .Query }}&page={{ .NextPage }}" hx-target="#results">Next →</button>
+    {{ end }}
+</div>
+{{ end }}
+{{ end }}
