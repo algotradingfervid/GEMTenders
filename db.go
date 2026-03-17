@@ -136,13 +136,25 @@ func InsertBidsBatch(db *sql.DB, docs []BidDoc) (int, error) {
 	return inserted, tx.Commit()
 }
 
-func MarkPDFDownloaded(db *sql.DB, bidIDParent int) error {
-	_, err := db.Exec("UPDATE bids SET pdf_downloaded = 1 WHERE bid_id_parent = ?", bidIDParent)
+// MarkPDFDownloaded marks bids as downloaded by their download ID.
+// The download ID is bid_id_parent if set, otherwise bid_id.
+func MarkPDFDownloaded(db *sql.DB, downloadID int) error {
+	_, err := db.Exec(`UPDATE bids SET pdf_downloaded = 1
+		WHERE (bid_id_parent = ? AND bid_id_parent > 0)
+		   OR (bid_id = ? AND (bid_id_parent = 0 OR bid_id_parent IS NULL))`,
+		downloadID, downloadID)
 	return err
 }
 
+// GetPendingDownloads returns download IDs for bids without PDFs.
+// Uses bid_id_parent if available, falls back to bid_id.
 func GetPendingDownloads(db *sql.DB) ([]int, error) {
-	rows, err := db.Query("SELECT DISTINCT bid_id_parent FROM bids WHERE pdf_downloaded = 0 AND bid_id_parent > 0")
+	rows, err := db.Query(`
+		SELECT DISTINCT
+			CASE WHEN bid_id_parent > 0 THEN bid_id_parent ELSE bid_id END as download_id
+		FROM bids
+		WHERE pdf_downloaded = 0
+		AND (bid_id > 0 OR bid_id_parent > 0)`)
 	if err != nil {
 		return nil, err
 	}
