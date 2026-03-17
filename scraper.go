@@ -52,7 +52,9 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 	}
 
 	if len(apiResp.Response.Response.Docs) > 0 {
-		InsertBidsBatch(db, apiResp.Response.Response.Docs)
+		if _, err := InsertBidsBatch(db, apiResp.Response.Response.Docs); err != nil {
+			errLog.Log("scrape-insert", "page=1", err)
+		}
 	}
 
 	totalFound := apiResp.Response.Response.NumFound
@@ -78,7 +80,10 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 
 	wg.Wait()
 
-	total, _, _ := GetBidCount(db)
+	total, _, countErr := GetBidCount(db)
+	if countErr != nil {
+		log.Printf("[scraper] GetBidCount error: %v", countErr)
+	}
 	log.Printf("All scrapers complete. Total unique bids in DB: %d", total)
 	return nil
 }
@@ -144,7 +149,10 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 	}
 
 	wg.Wait()
-	total, _, _ := GetBidCount(db)
+	total, _, countErr := GetBidCount(db)
+	if countErr != nil {
+		log.Printf("[scraper] GetBidCount error: %v", countErr)
+	}
 	log.Printf("[S%d] Done: %d new bids inserted, %d errors, DB total: %d",
 		scraperID, scraped, errors, total)
 }

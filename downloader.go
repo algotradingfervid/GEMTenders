@@ -36,7 +36,9 @@ func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetri
 	for _, id := range ids {
 		destPath := filepath.Join(downloadDir, fmt.Sprintf("GeM-Bidding-%d.pdf", id))
 		if _, err := os.Stat(destPath); err == nil {
-			MarkPDFDownloaded(db, id)
+			if markErr := MarkPDFDownloaded(db, id); markErr != nil {
+				log.Printf("[pdf-download] mark-downloaded error bid=%d: %v", id, markErr)
+			}
 			continue
 		}
 		pending = append(pending, id)
@@ -80,7 +82,9 @@ func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetri
 					continue
 				}
 
-				MarkPDFDownloaded(db, bidIDParent)
+				if markErr := MarkPDFDownloaded(db, bidIDParent); markErr != nil {
+					errLog.Log("pdf-mark-downloaded", bidIDParent, markErr)
+				}
 				done := atomic.AddInt64(&completed, 1)
 				if done%100 == 0 {
 					log.Printf("PDF progress: %d/%d downloaded, %d failed",
@@ -107,7 +111,7 @@ func downloadWithRetry(client *http.Client, bidIDParent int, downloadDir string,
 			time.Sleep(backoff)
 		}
 	}
-	return fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
+	return fmt.Errorf("failed after %d attempts for bid %d: %w", maxRetries, bidIDParent, lastErr)
 }
 
 func downloadPDF(client *http.Client, bidIDParent int, downloadDir string) error {
@@ -170,7 +174,9 @@ func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps in
 	for _, doc := range pending {
 		destPath := filepath.Join(corrDir, fmt.Sprintf("Corrigendum-%d-%d.pdf", doc.CorrigendumID, doc.BidID))
 		if _, err := os.Stat(destPath); err == nil {
-			MarkCorrigendumDownloaded(db, doc.ID)
+			if markErr := MarkCorrigendumDownloaded(db, doc.ID); markErr != nil {
+				log.Printf("[corrigendum-pdf] mark-downloaded error corr=%d bid=%d: %v", doc.CorrigendumID, doc.BidID, markErr)
+			}
 			continue
 		}
 		toDownload = append(toDownload, doc)
@@ -217,7 +223,9 @@ func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps in
 					continue
 				}
 
-				MarkCorrigendumDownloaded(db, doc.ID)
+				if markErr := MarkCorrigendumDownloaded(db, doc.ID); markErr != nil {
+					errLog.Log("corrigendum-pdf-mark-downloaded", fmt.Sprintf("corr=%d bid=%d", doc.CorrigendumID, doc.BidID), markErr)
+				}
 				done := atomic.AddInt64(&completed, 1)
 				if done%100 == 0 {
 					log.Printf("Corrigendum PDF progress: %d/%d downloaded, %d failed",
@@ -243,7 +251,7 @@ func downloadCorrigendumWithRetry(client *http.Client, pdfURL string, destPath s
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 		}
 	}
-	return fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
+	return fmt.Errorf("failed after %d attempts url=%s: %w", maxRetries, pdfURL, lastErr)
 }
 
 func downloadFile(client *http.Client, url string, destPath string) error {

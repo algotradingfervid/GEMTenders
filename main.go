@@ -79,7 +79,10 @@ func runScrapeCmd(args []string) {
 		// Don't exit — bid scraping succeeded
 	}
 
-	total, downloaded, _ := GetBidCount(db)
+	total, downloaded, err := GetBidCount(db)
+	if err != nil {
+		log.Printf("Warning: GetBidCount error: %v", err)
+	}
 	log.Printf("=== Done === Total bids: %d, PDFs downloaded: %d", total, downloaded)
 }
 
@@ -112,7 +115,10 @@ func runDownloadCmd(args []string) {
 		log.Printf("Corrigendum download error: %v", err)
 	}
 
-	total, downloaded, _ := GetBidCount(db)
+	total, downloaded, err := GetBidCount(db)
+	if err != nil {
+		log.Printf("Warning: GetBidCount error: %v", err)
+	}
 	log.Printf("=== Done === Total bids: %d, PDFs downloaded: %d", total, downloaded)
 }
 
@@ -127,13 +133,22 @@ func runStatusCmd(args []string) {
 	}
 	defer db.Close()
 
-	total, downloaded, _ := GetBidCount(db)
-	pending, _ := GetPendingDownloads(db)
+	total, downloaded, err := GetBidCount(db)
+	if err != nil {
+		log.Printf("Warning: GetBidCount error: %v", err)
+	}
+	pending, err := GetPendingDownloads(db)
+	if err != nil {
+		log.Printf("Warning: GetPendingDownloads error: %v", err)
+	}
 	fmt.Printf("Total bids:        %d\n", total)
 	fmt.Printf("PDFs downloaded:   %d\n", downloaded)
 	fmt.Printf("PDFs pending:      %d\n", len(pending))
 
-	checked, withCorr, docsTotal, docsDownloaded, _ := GetCorrigendumStats(db)
+	checked, withCorr, docsTotal, docsDownloaded, err := GetCorrigendumStats(db)
+	if err != nil {
+		log.Printf("Warning: GetCorrigendumStats error: %v", err)
+	}
 	fmt.Printf("Corrigendums checked: %d\n", checked)
 	fmt.Printf("Bids with corrigendums: %d\n", withCorr)
 	fmt.Printf("Corrigendum PDFs:     %d downloaded / %d total\n", docsDownloaded, docsTotal)

@@ -470,10 +470,18 @@ func UpdateBidEndDate(db *sql.DB, bidID int, newEndDate string) error {
 }
 
 func GetCorrigendumStats(db *sql.DB) (checked int, withCorr int, docsTotal int, docsDownloaded int, err error) {
-	db.QueryRow("SELECT COUNT(*) FROM bid_other_details").Scan(&checked)
-	db.QueryRow("SELECT COUNT(*) FROM bid_other_details WHERE has_corrigendum = 1").Scan(&withCorr)
-	db.QueryRow("SELECT COUNT(*) FROM corrigendum_documents").Scan(&docsTotal)
-	db.QueryRow("SELECT COUNT(*) FROM corrigendum_documents WHERE downloaded = 1").Scan(&docsDownloaded)
+	if err = db.QueryRow("SELECT COUNT(*) FROM bid_other_details").Scan(&checked); err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("count bid_other_details: %w", err)
+	}
+	if err = db.QueryRow("SELECT COUNT(*) FROM bid_other_details WHERE has_corrigendum = 1").Scan(&withCorr); err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("count corrigendums: %w", err)
+	}
+	if err = db.QueryRow("SELECT COUNT(*) FROM corrigendum_documents").Scan(&docsTotal); err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("count corrigendum_documents: %w", err)
+	}
+	if err = db.QueryRow("SELECT COUNT(*) FROM corrigendum_documents WHERE downloaded = 1").Scan(&docsDownloaded); err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("count downloaded: %w", err)
+	}
 	return
 }
 

@@ -317,14 +317,18 @@ func processOneBid(sp *SessionPair, db *sql.DB, bidID int, limiter *rate.Limiter
 			// Extract and insert document links
 			docs := ParseCorrigendumDocs(html, bidID)
 			for _, doc := range docs {
-				InsertCorrigendumDoc(db, doc)
+				if err := InsertCorrigendumDoc(db, doc); err != nil {
+					log.Printf("[corrigendum] insert doc error bid=%d corr=%d: %v", bidID, doc.CorrigendumID, err)
+				}
 			}
 
 			// Update bid end_date if extended
 			latestDate := ParseLatestEndDate(html)
 			if latestDate != "" {
 				details.LatestEndDate = latestDate
-				UpdateBidEndDate(db, bidID, latestDate)
+				if err := UpdateBidEndDate(db, bidID, latestDate); err != nil {
+					log.Printf("[corrigendum] update end_date error bid=%d date=%s: %v", bidID, latestDate, err)
+				}
 			}
 		}
 	}
