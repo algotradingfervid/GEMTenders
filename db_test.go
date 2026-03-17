@@ -280,6 +280,78 @@ func TestUpdateBidEndDate(t *testing.T) {
 	}
 }
 
+func TestCorrigendumEndToEnd(t *testing.T) {
+	dbPath := "/tmp/test_gem_e2e_corr.db"
+	defer os.Remove(dbPath)
+
+	db, err := InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	defer db.Close()
+
+	// Insert a bid with future end_date
+	InsertBid(db, BidDoc{
+		ID:      "100",
+		BidID:   []int{100},
+		EndDate: []string{"2099-12-31T00:00:00Z"},
+	})
+
+	// Verify it shows as active
+	active, _ := GetActiveBidIDs(db)
+	if len(active) != 1 || active[0] != 100 {
+		t.Fatalf("expected active bid [100], got %v", active)
+	}
+
+	// Simulate: other-details says corrigendum=true
+	details := BidOtherDetails{
+		BidID:            100,
+		HasCorrigendum:   1,
+		CorrigendumHTML:  `<div class="well">first version</div>`,
+		CorrigendumCount: 1,
+		LastChecked:      "2026-03-17T12:00:00Z",
+	}
+	UpsertBidOtherDetails(db, details)
+
+	// Insert a corrigendum document
+	InsertCorrigendumDoc(db, CorrigendumDoc{
+		BidID:         100,
+		CorrigendumID: 555,
+		DownloadURL:   "/bidding/bid/showcorrigendumpdf/555/100",
+		ModifiedOn:    "2026-03-17 10:00:00",
+	})
+
+	// Verify pending download
+	pending, _ := GetPendingCorrigendumDownloads(db)
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending download, got %d", len(pending))
+	}
+
+	// Simulate: corrigendum updated with new content (delta)
+	details.CorrigendumHTML = `<div class="well">first version</div><div class="well">second</div>`
+	details.CorrigendumCount = 2
+	UpsertBidOtherDetails(db, details)
+
+	got, _ := GetBidOtherDetails(db, 100)
+	if got.CorrigendumCount != 2 {
+		t.Errorf("expected count=2 after update, got %d", got.CorrigendumCount)
+	}
+
+	// Simulate: mark downloaded
+	MarkCorrigendumDownloaded(db, pending[0].ID)
+	pending2, _ := GetPendingCorrigendumDownloads(db)
+	if len(pending2) != 0 {
+		t.Errorf("expected 0 pending after download, got %d", len(pending2))
+	}
+
+	// Stats
+	checked, withCorr, docsTotal, docsDownloaded, _ := GetCorrigendumStats(db)
+	if checked != 1 || withCorr != 1 || docsTotal != 1 || docsDownloaded != 1 {
+		t.Errorf("stats mismatch: checked=%d withCorr=%d total=%d downloaded=%d",
+			checked, withCorr, docsTotal, docsDownloaded)
+	}
+}
+
 func TestInsertBatchAndDuplicates(t *testing.T) {
 	dbPath := "/tmp/test_gem3.db"
 	defer os.Remove(dbPath)
