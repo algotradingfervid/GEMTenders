@@ -72,9 +72,9 @@ func runDownloadCmd(args []string) {
 	fs := flag.NewFlagSet("download", flag.ExitOnError)
 	dbPath := fs.String("db", "gems.db", "SQLite database path")
 	downloadDir := fs.String("dir", "downloads", "PDF download directory")
-	sessions := fs.Int("sessions", 10, "Number of sessions to bootstrap")
-	workers := fs.Int("workers", 10, "Number of download goroutines")
+	workers := fs.Int("workers", 5, "Number of download goroutines")
 	rps := fs.Int("rps", 10, "Download requests per second")
+	retries := fs.Int("retries", 5, "Max retry attempts per download")
 	fs.Parse(args)
 
 	db, err := InitDB(*dbPath)
@@ -83,13 +83,8 @@ func runDownloadCmd(args []string) {
 	}
 	defer db.Close()
 
-	pool, err := BootstrapSessions(*sessions)
-	if err != nil {
-		log.Fatalf("Failed to bootstrap sessions: %v", err)
-	}
-
 	log.Println("=== Downloading bid PDFs ===")
-	if err := DownloadPDFs(pool, db, *downloadDir, *workers, *rps); err != nil {
+	if err := DownloadPDFs(db, *downloadDir, *workers, *rps, *retries); err != nil {
 		log.Printf("Download error: %v", err)
 		os.Exit(1)
 	}

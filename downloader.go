@@ -11,11 +11,12 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/time/rate"
 )
 
-func DownloadPDFs(pool *SessionPool, db *sql.DB, downloadDir string, workers int, rps int) error {
+func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int) error {
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		return fmt.Errorf("create download dir: %w", err)
 	}
@@ -67,22 +68,16 @@ func DownloadPDFs(pool *SessionPool, db *sql.DB, downloadDir string, workers int
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			sp := pool.Next()
+			client := &http.Client{Timeout: 60 * time.Second}
 
 			for bidIDParent := range jobs {
 				limiter.Wait(context.Background())
 
-				err := downloadPDF(sp, bidIDParent, downloadDir)
+				err := downloadWithRetry(client, bidIDParent, downloadDir, maxRetries)
 				if err != nil {
-					// Retry with different session
-					sp = pool.Next()
-					limiter.Wait(context.Background())
-					err = downloadPDF(sp, bidIDParent, downloadDir)
-					if err != nil {
-						log.Printf("[W%d] Download failed for %d: %v", workerID, bidIDParent, err)
-						atomic.AddInt64(&failed, 1)
-						continue
-					}
+					log.Printf("[W%d] Download failed for %d: %v", workerID, bidIDParent, err)
+					atomic.AddInt64(&failed, 1)
+					continue
 				}
 
 				MarkPDFDownloaded(db, bidIDParent)
@@ -100,7 +95,22 @@ func DownloadPDFs(pool *SessionPool, db *sql.DB, downloadDir string, workers int
 	return nil
 }
 
-func downloadPDF(sp *SessionPair, bidIDParent int, downloadDir string) error {
+func downloadWithRetry(client *http.Client, bidIDParent int, downloadDir string, maxRetries int) error {
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		lastErr = downloadPDF(client, bidIDParent, downloadDir)
+		if lastErr == nil {
+			return nil
+		}
+		if attempt < maxRetries {
+			backoff := time.Duration(attempt) * 2 * time.Second
+			time.Sleep(backoff)
+		}
+	}
+	return fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+func downloadPDF(client *http.Client, bidIDParent int, downloadDir string) error {
 	pdfURL := fmt.Sprintf("%s/showbidDocument/%d", baseURL, bidIDParent)
 
 	req, err := http.NewRequest("GET", pdfURL, nil)
@@ -110,11 +120,8 @@ func downloadPDF(sp *SessionPair, bidIDParent int, downloadDir string) error {
 
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/pdf,application/x-pdf,*/*")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Referer", baseURL+"/all-bids")
 
-	resp, err := sp.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}
@@ -126,10 +133,6 @@ func downloadPDF(sp *SessionPair, bidIDParent int, downloadDir string) error {
 
 	filename := fmt.Sprintf("GeM-Bidding-%d.pdf", bidIDParent)
 	destPath := filepath.Join(downloadDir, filename)
-
-	if _, err := os.Stat(destPath); err == nil {
-		return nil
-	}
 
 	out, err := os.Create(destPath)
 	if err != nil {
