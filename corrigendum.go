@@ -146,19 +146,20 @@ func FetchCorrigendumHTML(sp *SessionPair, bidID int) (string, error) {
 	return string(body), nil
 }
 
-// FetchRepresentationHTML calls POST /bidding/bid/viewRepresentation/{bid_id}
+// FetchRepresentationHTML calls GET /publish-representations/{bid_id}
 // Returns the raw HTML response body.
 func FetchRepresentationHTML(sp *SessionPair, bidID int) (string, error) {
-	formData := url.Values{}
-	formData.Set("csrf_bd_gem_nk", sp.CSRFToken)
-
-	reqURL := fmt.Sprintf("%s/bidding/bid/viewRepresentation/%d", baseURL, bidID)
-	req, err := http.NewRequest("POST", reqURL, strings.NewReader(formData.Encode()))
+	reqURL := fmt.Sprintf("%s/publish-representations/%d", baseURL, bidID)
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return "", err
 	}
-	setAjaxHeaders(req)
-	req.Header.Set("Accept", "text/html, */*; q=0.01")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Referer", baseURL+"/all-bids")
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 
 	resp, err := sp.Client.Do(req)
 	if err != nil {
