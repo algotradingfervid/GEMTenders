@@ -6,11 +6,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"time"
 )
 
-func DownloadPDFs(session *BrowserSession, db *sql.DB, downloadDir string, concurrency int, delayMs int) error {
+func DownloadPDFs(session *BrowserSession, db *sql.DB, downloadDir string, workers int, delayMs int) error {
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		return fmt.Errorf("create download dir: %w", err)
 	}
@@ -25,50 +24,81 @@ func DownloadPDFs(session *BrowserSession, db *sql.DB, downloadDir string, concu
 		return nil
 	}
 
-	log.Printf("Downloading %d PDFs (sequential via browser, delay=%dms)", len(ids), delayMs)
+	// Filter out IDs that already have files on disk
+	var pending []int
+	for _, id := range ids {
+		destPath := filepath.Join(downloadDir, fmt.Sprintf("GeM-Bidding-%d.pdf", id))
+		if _, err := os.Stat(destPath); err == nil {
+			// File exists, mark as downloaded in DB
+			MarkPDFDownloaded(db, id)
+			continue
+		}
+		pending = append(pending, id)
+	}
 
-	// Downloads must be sequential since they go through a single browser context
-	// The concurrency parameter is kept for API compatibility but not used here
-	var completed, failed int64
-	total := len(ids)
+	if len(pending) == 0 {
+		log.Println("All PDFs already downloaded on disk")
+		return nil
+	}
 
-	for _, bidIDParent := range ids {
-		if delayMs > 0 {
+	log.Printf("Downloading %d PDFs in batches of %d", len(pending), workers)
+
+	var completed, failed int
+	total := len(pending)
+
+	for batchStart := 0; batchStart < total; batchStart += workers {
+		batchEnd := batchStart + workers
+		if batchEnd > total {
+			batchEnd = total
+		}
+		batch := pending[batchStart:batchEnd]
+
+		if delayMs > 0 && batchStart > 0 {
 			time.Sleep(time.Duration(delayMs) * time.Millisecond)
 		}
 
-		destPath := filepath.Join(downloadDir, fmt.Sprintf("GeM-Bidding-%d.pdf", bidIDParent))
-
-		// Skip if already exists on disk
-		if _, err := os.Stat(destPath); err == nil {
-			if err := MarkPDFDownloaded(db, bidIDParent); err != nil {
-				log.Printf("Failed to mark %d as downloaded: %v", bidIDParent, err)
-			}
-			atomic.AddInt64(&completed, 1)
-			continue
-		}
-
-		data, err := session.DownloadPDFBytes(bidIDParent)
+		results, err := session.DownloadPDFBatch(batch)
 		if err != nil {
-			log.Printf("Download failed for %d: %v", bidIDParent, err)
-			atomic.AddInt64(&failed, 1)
+			log.Printf("Batch %d-%d failed: %v (retrying individually)", batchStart, batchEnd, err)
+			for _, id := range batch {
+				time.Sleep(time.Duration(delayMs) * time.Millisecond)
+				data, err := session.DownloadPDFBytes(id)
+				if err != nil {
+					log.Printf("Download failed for %d: %v", id, err)
+					failed++
+					continue
+				}
+				destPath := filepath.Join(downloadDir, fmt.Sprintf("GeM-Bidding-%d.pdf", id))
+				if err := os.WriteFile(destPath, data, 0644); err != nil {
+					log.Printf("Write failed for %d: %v", id, err)
+					failed++
+					continue
+				}
+				MarkPDFDownloaded(db, id)
+				completed++
+			}
 			continue
 		}
 
-		if err := os.WriteFile(destPath, data, 0644); err != nil {
-			log.Printf("Write failed for %d: %v", bidIDParent, err)
-			atomic.AddInt64(&failed, 1)
-			continue
+		// Write successful downloads to disk
+		for _, id := range batch {
+			data, ok := results[id]
+			if !ok || data == nil {
+				failed++
+				continue
+			}
+			destPath := filepath.Join(downloadDir, fmt.Sprintf("GeM-Bidding-%d.pdf", id))
+			if err := os.WriteFile(destPath, data, 0644); err != nil {
+				log.Printf("Write failed for %d: %v", id, err)
+				failed++
+				continue
+			}
+			MarkPDFDownloaded(db, id)
+			completed++
 		}
 
-		if err := MarkPDFDownloaded(db, bidIDParent); err != nil {
-			log.Printf("Failed to mark %d as downloaded: %v", bidIDParent, err)
-		}
-
-		completed++
-		if completed%100 == 0 {
-			log.Printf("PDF progress: %d/%d downloaded, %d failed", completed, total, failed)
-		}
+		log.Printf("PDF progress: %d/%d downloaded, %d failed (batch %d-%d)",
+			completed, total, failed, batchStart+1, batchEnd)
 	}
 
 	log.Printf("PDF download complete: %d/%d succeeded, %d failed", completed, total, failed)
