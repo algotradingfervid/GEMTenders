@@ -116,6 +116,170 @@ func TestCorrigendumTablesExist(t *testing.T) {
 	}
 }
 
+func TestUpsertBidOtherDetails(t *testing.T) {
+	dbPath := "/tmp/test_gem_upsert.db"
+	defer os.Remove(dbPath)
+
+	db, err := InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	defer db.Close()
+
+	// Insert
+	details := BidOtherDetails{
+		BidID:              123,
+		HasCorrigendum:     1,
+		HasRepresentation:  0,
+		CorrigendumHTML:    "<div>test</div>",
+		RepresentationHTML: "",
+		CorrigendumCount:   1,
+		LatestEndDate:      "2026-04-01T09:00:00",
+		LastChecked:        "2026-03-17T12:00:00",
+	}
+	err = UpsertBidOtherDetails(db, details)
+	if err != nil {
+		t.Fatalf("UpsertBidOtherDetails (insert) failed: %v", err)
+	}
+
+	// Read back
+	got, err := GetBidOtherDetails(db, 123)
+	if err != nil {
+		t.Fatalf("GetBidOtherDetails failed: %v", err)
+	}
+	if got.CorrigendumHTML != "<div>test</div>" {
+		t.Errorf("expected HTML '<div>test</div>', got '%s'", got.CorrigendumHTML)
+	}
+	if got.HasCorrigendum != 1 {
+		t.Errorf("expected has_corrigendum=1, got %d", got.HasCorrigendum)
+	}
+
+	// Update (upsert)
+	details.CorrigendumHTML = "<div>updated</div>"
+	details.CorrigendumCount = 2
+	err = UpsertBidOtherDetails(db, details)
+	if err != nil {
+		t.Fatalf("UpsertBidOtherDetails (update) failed: %v", err)
+	}
+
+	got, err = GetBidOtherDetails(db, 123)
+	if err != nil {
+		t.Fatalf("GetBidOtherDetails after update failed: %v", err)
+	}
+	if got.CorrigendumHTML != "<div>updated</div>" {
+		t.Errorf("expected updated HTML, got '%s'", got.CorrigendumHTML)
+	}
+	if got.CorrigendumCount != 2 {
+		t.Errorf("expected count=2, got %d", got.CorrigendumCount)
+	}
+}
+
+func TestInsertCorrigendumDoc(t *testing.T) {
+	dbPath := "/tmp/test_gem_corrdoc.db"
+	defer os.Remove(dbPath)
+
+	db, err := InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	defer db.Close()
+
+	doc := CorrigendumDoc{
+		BidID:         123,
+		CorrigendumID: 456,
+		DownloadURL:   "/bidding/bid/showcorrigendumpdf/456/123",
+		ModifiedOn:    "2026-03-11 12:47:58",
+	}
+	err = InsertCorrigendumDoc(db, doc)
+	if err != nil {
+		t.Fatalf("InsertCorrigendumDoc failed: %v", err)
+	}
+
+	// Duplicate should not error (INSERT OR IGNORE)
+	err = InsertCorrigendumDoc(db, doc)
+	if err != nil {
+		t.Fatalf("InsertCorrigendumDoc duplicate failed: %v", err)
+	}
+
+	// Check pending
+	pending, err := GetPendingCorrigendumDownloads(db)
+	if err != nil {
+		t.Fatalf("GetPendingCorrigendumDownloads failed: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Errorf("expected 1 pending, got %d", len(pending))
+	}
+	if pending[0].CorrigendumID != 456 {
+		t.Errorf("expected corrigendum_id=456, got %d", pending[0].CorrigendumID)
+	}
+}
+
+func TestGetActiveBidIDs(t *testing.T) {
+	dbPath := "/tmp/test_gem_active.db"
+	defer os.Remove(dbPath)
+
+	db, err := InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	defer db.Close()
+
+	// Insert one future bid, one past bid
+	InsertBid(db, BidDoc{
+		ID:      "1",
+		BidID:   []int{1},
+		EndDate: []string{"2099-12-31T00:00:00Z"},
+	})
+	InsertBid(db, BidDoc{
+		ID:      "2",
+		BidID:   []int{2},
+		EndDate: []string{"2020-01-01T00:00:00Z"},
+	})
+
+	ids, err := GetActiveBidIDs(db)
+	if err != nil {
+		t.Fatalf("GetActiveBidIDs failed: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != 1 {
+		t.Errorf("expected [1], got %v", ids)
+	}
+}
+
+func TestUpdateBidEndDate(t *testing.T) {
+	dbPath := "/tmp/test_gem_enddate.db"
+	defer os.Remove(dbPath)
+
+	db, err := InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	defer db.Close()
+
+	InsertBid(db, BidDoc{
+		ID:      "1",
+		BidID:   []int{1},
+		EndDate: []string{"2026-03-18T09:00:00Z"},
+	})
+
+	err = UpdateBidEndDate(db, 1, "2026-04-01T09:00:00Z")
+	if err != nil {
+		t.Fatalf("UpdateBidEndDate failed: %v", err)
+	}
+
+	var endDate string
+	db.QueryRow("SELECT end_date FROM bids WHERE bid_id = 1").Scan(&endDate)
+	if endDate != "2026-04-01T09:00:00Z" {
+		t.Errorf("expected updated end_date, got '%s'", endDate)
+	}
+
+	// Original should be preserved
+	var orig string
+	db.QueryRow("SELECT end_date_original FROM bids WHERE bid_id = 1").Scan(&orig)
+	if orig != "2026-03-18T09:00:00Z" {
+		t.Errorf("expected original end_date preserved, got '%s'", orig)
+	}
+}
+
 func TestInsertBatchAndDuplicates(t *testing.T) {
 	dbPath := "/tmp/test_gem3.db"
 	defer os.Remove(dbPath)

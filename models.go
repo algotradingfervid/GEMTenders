@@ -86,3 +86,36 @@ func firstBool(s []bool) bool {
 	}
 	return false
 }
+
+// OtherDetailsResponse is the JSON from POST /public-bid-other-details/{bid_id}
+type OtherDetailsResponse struct {
+	Status   int    `json:"status"`
+	Code     int    `json:"code"`
+	Message  string `json:"message"`
+	Response struct {
+		Corrigendum    bool `json:"corrigendum"`
+		Representation bool `json:"representation"`
+	} `json:"response"`
+}
+
+// BidOtherDetails maps to the bid_other_details table
+type BidOtherDetails struct {
+	BidID              int
+	HasCorrigendum     int
+	HasRepresentation  int
+	CorrigendumHTML    string
+	RepresentationHTML string
+	CorrigendumCount   int
+	LatestEndDate      string
+	LastChecked        string
+}
+
+// CorrigendumDoc maps to the corrigendum_documents table
+type CorrigendumDoc struct {
+	ID            int
+	BidID         int
+	CorrigendumID int
+	DownloadURL   string
+	ModifiedOn    string
+	Downloaded    int
+}

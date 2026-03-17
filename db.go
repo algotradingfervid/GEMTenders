@@ -348,3 +348,139 @@ func scanBidResults(rows *sql.Rows, total int) ([]BidResult, int, error) {
 	}
 	return results, total, rows.Err()
 }
+
+func GetActiveBidIDs(db *sql.DB) ([]int, error) {
+	rows, err := db.Query(`
+		SELECT DISTINCT bid_id FROM bids
+		WHERE end_date > datetime('now')
+		AND bid_id > 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func GetBidOtherDetails(db *sql.DB, bidID int) (*BidOtherDetails, error) {
+	var d BidOtherDetails
+	err := db.QueryRow(`
+		SELECT bid_id, has_corrigendum, has_representation,
+		       corrigendum_html, representation_html,
+		       corrigendum_count, latest_end_date, last_checked
+		FROM bid_other_details WHERE bid_id = ?`, bidID).Scan(
+		&d.BidID, &d.HasCorrigendum, &d.HasRepresentation,
+		&d.CorrigendumHTML, &d.RepresentationHTML,
+		&d.CorrigendumCount, &d.LatestEndDate, &d.LastChecked)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+func UpsertBidOtherDetails(db *sql.DB, d BidOtherDetails) error {
+	_, err := db.Exec(`
+		INSERT INTO bid_other_details (
+			bid_id, has_corrigendum, has_representation,
+			corrigendum_html, representation_html,
+			corrigendum_count, latest_end_date, last_checked
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(bid_id) DO UPDATE SET
+			has_corrigendum = excluded.has_corrigendum,
+			has_representation = excluded.has_representation,
+			corrigendum_html = excluded.corrigendum_html,
+			representation_html = excluded.representation_html,
+			corrigendum_count = excluded.corrigendum_count,
+			latest_end_date = excluded.latest_end_date,
+			last_checked = excluded.last_checked`,
+		d.BidID, d.HasCorrigendum, d.HasRepresentation,
+		d.CorrigendumHTML, d.RepresentationHTML,
+		d.CorrigendumCount, d.LatestEndDate, d.LastChecked)
+	return err
+}
+
+func InsertCorrigendumDoc(db *sql.DB, doc CorrigendumDoc) error {
+	_, err := db.Exec(`
+		INSERT OR IGNORE INTO corrigendum_documents (
+			bid_id, corrigendum_id, download_url, modified_on
+		) VALUES (?, ?, ?, ?)`,
+		doc.BidID, doc.CorrigendumID, doc.DownloadURL, doc.ModifiedOn)
+	return err
+}
+
+func GetPendingCorrigendumDownloads(db *sql.DB) ([]CorrigendumDoc, error) {
+	rows, err := db.Query(`
+		SELECT id, bid_id, corrigendum_id, download_url, modified_on
+		FROM corrigendum_documents WHERE downloaded = 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var docs []CorrigendumDoc
+	for rows.Next() {
+		var d CorrigendumDoc
+		if err := rows.Scan(&d.ID, &d.BidID, &d.CorrigendumID, &d.DownloadURL, &d.ModifiedOn); err != nil {
+			return nil, err
+		}
+		docs = append(docs, d)
+	}
+	return docs, rows.Err()
+}
+
+func MarkCorrigendumDownloaded(db *sql.DB, id int) error {
+	_, err := db.Exec("UPDATE corrigendum_documents SET downloaded = 1 WHERE id = ?", id)
+	return err
+}
+
+func UpdateBidEndDate(db *sql.DB, bidID int, newEndDate string) error {
+	// Preserve the original end_date before the first update
+	_, err := db.Exec(`
+		UPDATE bids SET end_date_original = end_date
+		WHERE bid_id = ? AND (end_date_original = '' OR end_date_original IS NULL)`,
+		bidID)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`
+		UPDATE bids SET end_date = ?
+		WHERE bid_id = ? AND end_date != ?`,
+		newEndDate, bidID, newEndDate)
+	return err
+}
+
+func GetCorrigendumStats(db *sql.DB) (checked int, withCorr int, docsTotal int, docsDownloaded int, err error) {
+	db.QueryRow("SELECT COUNT(*) FROM bid_other_details").Scan(&checked)
+	db.QueryRow("SELECT COUNT(*) FROM bid_other_details WHERE has_corrigendum = 1").Scan(&withCorr)
+	db.QueryRow("SELECT COUNT(*) FROM corrigendum_documents").Scan(&docsTotal)
+	db.QueryRow("SELECT COUNT(*) FROM corrigendum_documents WHERE downloaded = 1").Scan(&docsDownloaded)
+	return
+}
+
+func GetCorrigendumDocsForBid(db *sql.DB, bidID int) ([]CorrigendumDoc, error) {
+	rows, err := db.Query(`
+		SELECT id, bid_id, corrigendum_id, download_url, modified_on, downloaded
+		FROM corrigendum_documents WHERE bid_id = ? ORDER BY modified_on DESC`, bidID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var docs []CorrigendumDoc
+	for rows.Next() {
+		var d CorrigendumDoc
+		if err := rows.Scan(&d.ID, &d.BidID, &d.CorrigendumID, &d.DownloadURL, &d.ModifiedOn, &d.Downloaded); err != nil {
+			return nil, err
+		}
+		docs = append(docs, d)
+	}
+	return docs, rows.Err()
+}
