@@ -70,6 +70,12 @@ func runScrapeCmd(args []string) {
 		os.Exit(1)
 	}
 
+	log.Println("=== Checking corrigendums/representations ===")
+	if err := ScrapeCorrigendums(pool, db, *workers, *rps); err != nil {
+		log.Printf("Corrigendum check error: %v", err)
+		// Don't exit — bid scraping succeeded
+	}
+
 	total, downloaded, _ := GetBidCount(db)
 	log.Printf("=== Done === Total bids: %d, PDFs downloaded: %d", total, downloaded)
 }
@@ -95,6 +101,11 @@ func runDownloadCmd(args []string) {
 		os.Exit(1)
 	}
 
+	log.Println("=== Downloading corrigendum PDFs ===")
+	if err := DownloadCorrigendumPDFs(db, *downloadDir, *workers, *rps, *retries); err != nil {
+		log.Printf("Corrigendum download error: %v", err)
+	}
+
 	total, downloaded, _ := GetBidCount(db)
 	log.Printf("=== Done === Total bids: %d, PDFs downloaded: %d", total, downloaded)
 }
@@ -115,6 +126,11 @@ func runStatusCmd(args []string) {
 	fmt.Printf("Total bids:        %d\n", total)
 	fmt.Printf("PDFs downloaded:   %d\n", downloaded)
 	fmt.Printf("PDFs pending:      %d\n", len(pending))
+
+	checked, withCorr, docsTotal, docsDownloaded, _ := GetCorrigendumStats(db)
+	fmt.Printf("Corrigendums checked: %d\n", checked)
+	fmt.Printf("Bids with corrigendums: %d\n", withCorr)
+	fmt.Printf("Corrigendum PDFs:     %d downloaded / %d total\n", docsDownloaded, docsTotal)
 }
 
 func runReindexCmd(args []string) {
