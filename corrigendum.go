@@ -2,14 +2,22 @@ package main
 
 import (
 	"compress/gzip"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -195,4 +203,148 @@ func readResponseBody(resp *http.Response) ([]byte, error) {
 	}
 
 	return io.ReadAll(reader)
+}
+
+// ScrapeCorrigendums checks all active bids for corrigendum/representation updates.
+func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int) error {
+	bidIDs, err := GetActiveBidIDs(db)
+	if err != nil {
+		return fmt.Errorf("get active bids: %w", err)
+	}
+
+	if len(bidIDs) == 0 {
+		log.Println("[corrigendum] No active bids to check")
+		return nil
+	}
+
+	log.Printf("[corrigendum] Checking %d active bids (%d workers, %d req/s)", len(bidIDs), workers, rps)
+
+	limiter := rate.NewLimiter(rate.Limit(rps), rps*2)
+
+	jobs := make(chan int, len(bidIDs))
+	for _, id := range bidIDs {
+		jobs <- id
+	}
+	close(jobs)
+
+	var (
+		wg      sync.WaitGroup
+		checked int64
+		updated int64
+		errors  int64
+		total   = int64(len(bidIDs))
+	)
+
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sp := pool.Next()
+
+			for bidID := range jobs {
+				limiter.Wait(context.Background())
+
+				changed, err := processOneBid(sp, db, bidID, limiter)
+				if err != nil {
+					atomic.AddInt64(&errors, 1)
+					sp = pool.Next()
+					continue
+				}
+
+				if changed {
+					atomic.AddInt64(&updated, 1)
+				}
+
+				atomic.AddInt64(&checked, 1)
+				done := atomic.LoadInt64(&checked)
+				if done%500 == 0 {
+					log.Printf("[corrigendum] Progress: %d/%d checked, %d updated, %d errors",
+						done, total, atomic.LoadInt64(&updated), atomic.LoadInt64(&errors))
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	log.Printf("[corrigendum] Done: %d checked, %d updated, %d errors",
+		checked, updated, errors)
+	return nil
+}
+
+func processOneBid(sp *SessionPair, db *sql.DB, bidID int, limiter *rate.Limiter) (changed bool, err error) {
+	// Step 1: Check flags
+	hasCorr, hasRepr, err := FetchOtherDetails(sp, bidID)
+	if err != nil {
+		return false, fmt.Errorf("bid %d other-details: %w", bidID, err)
+	}
+
+	now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+
+	// Load existing record (may not exist)
+	existing, _ := GetBidOtherDetails(db, bidID)
+
+	details := BidOtherDetails{
+		BidID:             bidID,
+		HasCorrigendum:    boolToInt(hasCorr),
+		HasRepresentation: boolToInt(hasRepr),
+		LastChecked:       now,
+	}
+
+	// Carry forward existing HTML if not re-fetching
+	if existing != nil {
+		details.CorrigendumHTML = existing.CorrigendumHTML
+		details.RepresentationHTML = existing.RepresentationHTML
+		details.CorrigendumCount = existing.CorrigendumCount
+		details.LatestEndDate = existing.LatestEndDate
+	}
+
+	// Step 2: Fetch corrigendum if flagged
+	if hasCorr {
+		limiter.Wait(context.Background())
+		html, err := FetchCorrigendumHTML(sp, bidID)
+		if err != nil {
+			return false, fmt.Errorf("bid %d corrigendum: %w", bidID, err)
+		}
+
+		// Delta detection: only process if HTML changed
+		if existing == nil || html != existing.CorrigendumHTML {
+			changed = true
+			details.CorrigendumHTML = html
+			details.CorrigendumCount = ParseCorrigendumCount(html)
+
+			// Extract and insert document links
+			docs := ParseCorrigendumDocs(html, bidID)
+			for _, doc := range docs {
+				InsertCorrigendumDoc(db, doc)
+			}
+
+			// Update bid end_date if extended
+			latestDate := ParseLatestEndDate(html)
+			if latestDate != "" {
+				details.LatestEndDate = latestDate
+				UpdateBidEndDate(db, bidID, latestDate)
+			}
+		}
+	}
+
+	// Step 3: Fetch representation if flagged
+	if hasRepr {
+		limiter.Wait(context.Background())
+		html, err := FetchRepresentationHTML(sp, bidID)
+		if err != nil {
+			return false, fmt.Errorf("bid %d representation: %w", bidID, err)
+		}
+
+		if existing == nil || html != existing.RepresentationHTML {
+			changed = true
+			details.RepresentationHTML = html
+		}
+	}
+
+	// Step 4: Upsert
+	if err := UpsertBidOtherDetails(db, details); err != nil {
+		return false, fmt.Errorf("bid %d upsert: %w", bidID, err)
+	}
+
+	return changed, nil
 }
