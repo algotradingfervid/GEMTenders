@@ -72,8 +72,8 @@ func runDownloadCmd(args []string) {
 	fs := flag.NewFlagSet("download", flag.ExitOnError)
 	dbPath := fs.String("db", "gems.db", "SQLite database path")
 	downloadDir := fs.String("dir", "downloads", "PDF download directory")
-	workers := fs.Int("workers", 5, "Number of download goroutines")
-	rps := fs.Int("rps", 10, "Download requests per second")
+	workers := fs.Int("workers", 100, "Number of download goroutines")
+	rps := fs.Int("rps", 50, "Download requests per second")
 	retries := fs.Int("retries", 5, "Max retry attempts per download")
 	fs.Parse(args)
 
