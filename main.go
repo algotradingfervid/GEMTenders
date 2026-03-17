@@ -64,14 +64,17 @@ func runScrapeCmd(args []string) {
 		log.Fatalf("Failed to bootstrap sessions: %v", err)
 	}
 
+	errLog := NewErrorLog("scrape")
+	defer errLog.Close()
+
 	log.Println("=== Scraping bid listings ===")
-	if err := ScrapeBids(pool, db, *scrapers, *staggerSec, *workers, *rps); err != nil {
+	if err := ScrapeBids(pool, db, *scrapers, *staggerSec, *workers, *rps, errLog); err != nil {
 		log.Printf("Scraping error: %v", err)
 		os.Exit(1)
 	}
 
 	log.Println("=== Checking corrigendums/representations ===")
-	if err := ScrapeCorrigendums(pool, db, *workers, *rps); err != nil {
+	if err := ScrapeCorrigendums(pool, db, *workers, *rps, errLog); err != nil {
 		log.Printf("Corrigendum check error: %v", err)
 		// Don't exit — bid scraping succeeded
 	}
@@ -95,14 +98,17 @@ func runDownloadCmd(args []string) {
 	}
 	defer db.Close()
 
+	errLog := NewErrorLog("download")
+	defer errLog.Close()
+
 	log.Println("=== Downloading bid PDFs ===")
-	if err := DownloadPDFs(db, *downloadDir, *workers, *rps, *retries); err != nil {
+	if err := DownloadPDFs(db, *downloadDir, *workers, *rps, *retries, errLog); err != nil {
 		log.Printf("Download error: %v", err)
 		os.Exit(1)
 	}
 
 	log.Println("=== Downloading corrigendum PDFs ===")
-	if err := DownloadCorrigendumPDFs(db, *downloadDir, *workers, *rps, *retries); err != nil {
+	if err := DownloadCorrigendumPDFs(db, *downloadDir, *workers, *rps, *retries, errLog); err != nil {
 		log.Printf("Corrigendum download error: %v", err)
 	}
 

@@ -16,7 +16,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int) error {
+func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int, errLog *ErrorLog) error {
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		return fmt.Errorf("create download dir: %w", err)
 	}
@@ -75,7 +75,7 @@ func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetri
 
 				err := downloadWithRetry(client, bidIDParent, downloadDir, maxRetries)
 				if err != nil {
-					log.Printf("[W%d] Download failed for %d: %v", workerID, bidIDParent, err)
+					errLog.Log("pdf-download", bidIDParent, err)
 					atomic.AddInt64(&failed, 1)
 					continue
 				}
@@ -149,7 +149,7 @@ func downloadPDF(client *http.Client, bidIDParent int, downloadDir string) error
 	return nil
 }
 
-func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int) error {
+func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int, errLog *ErrorLog) error {
 	corrDir := filepath.Join(downloadDir, "corrigendums")
 	if err := os.MkdirAll(corrDir, 0755); err != nil {
 		return fmt.Errorf("create corrigendum dir: %w", err)
@@ -212,7 +212,7 @@ func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps in
 
 				err := downloadCorrigendumWithRetry(client, pdfURL, destPath, maxRetries)
 				if err != nil {
-					log.Printf("Corrigendum download failed for %d/%d: %v", doc.CorrigendumID, doc.BidID, err)
+					errLog.Log("corrigendum-pdf-download", fmt.Sprintf("corr=%d bid=%d", doc.CorrigendumID, doc.BidID), err)
 					atomic.AddInt64(&failed, 1)
 					continue
 				}

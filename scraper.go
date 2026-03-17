@@ -41,7 +41,7 @@ func DefaultPayload(page int) map[string]interface{} {
 // ScrapeBids launches `scrapers` parallel scraper instances, each offset by `staggerSec` seconds.
 // Each scraper independently scrapes all pages using its own workers and rate limiter.
 // The staggered snapshots catch records that shift between pages on the live API.
-func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, workersPerScraper int, rps int) error {
+func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, workersPerScraper int, rps int, errLog *ErrorLog) error {
 	// First request to get total count
 	sp := pool.Next()
 	log.Println("Fetching page 1 to get total count...")
@@ -72,7 +72,7 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 		wg.Add(1)
 		go func(scraperID int) {
 			defer wg.Done()
-			runScraper(scraperID, pool, db, totalPages, workersPerScraper, rps)
+			runScraper(scraperID, pool, db, totalPages, workersPerScraper, rps, errLog)
 		}(s + 1)
 	}
 
@@ -83,7 +83,7 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 	return nil
 }
 
-func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, workers int, rps int) {
+func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, workers int, rps int, errLog *ErrorLog) {
 	log.Printf("[S%d] Starting: %d pages, %d workers, %d req/s", scraperID, totalPages, workers, rps)
 
 	limiter := rate.NewLimiter(rate.Limit(rps), rps*2)
@@ -117,6 +117,7 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 					limiter.Wait(context.Background())
 					resp, err = fetchPage(sp, page)
 					if err != nil {
+						errLog.Log("scrape", fmt.Sprintf("page=%d", page), err)
 						atomic.AddInt64(&errors, 1)
 						continue
 					}
@@ -125,8 +126,11 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 				docs := resp.Response.Response.Docs
 				if len(docs) > 0 {
 					mu.Lock()
-					inserted, _ := InsertBidsBatch(db, docs)
+					inserted, insertErr := InsertBidsBatch(db, docs)
 					mu.Unlock()
+					if insertErr != nil {
+						errLog.Log("scrape-insert", fmt.Sprintf("page=%d", page), insertErr)
+					}
 					atomic.AddInt64(&scraped, int64(inserted))
 				}
 
