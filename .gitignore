@@ -1,5 +1,33 @@
+# Database
 gems.db
+gems.db-shm
+gems.db-wal
+
+# Downloads
 downloads/
 *.pdf
+
+# Binaries
 gemscraper
+gemtenders
+
+# Dependencies
 node_modules/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Test output
+gem_test_listings.csv
+gem_test_results.csv
+gem_test_results.json
+
+# Screenshots
+Screenshot*.png
+
+# Session notes
+session.md
+session2.txt
