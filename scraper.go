@@ -44,7 +44,7 @@ func DefaultPayload(page int) map[string]interface{} {
 // ScrapeBids launches `scrapers` parallel scraper instances, each offset by `staggerSec` seconds.
 // Each scraper independently scrapes all pages using its own workers and rate limiter.
 // The staggered snapshots catch records that shift between pages on the live API.
-func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, workersPerScraper int, rps int, errLog *ErrorLog) error {
+func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, workersPerScraper int, rps int, errLog *ErrorLog, onProgress ProgressFunc) error {
 	// First request to get total count
 	sp := pool.Next()
 	log.Println("Fetching page 1 to get total count...")
@@ -77,7 +77,7 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 		wg.Add(1)
 		go func(scraperID int) {
 			defer wg.Done()
-			runScraper(scraperID, pool, db, totalPages, workersPerScraper, rps, errLog)
+			runScraper(scraperID, pool, db, totalPages, workersPerScraper, rps, errLog, onProgress)
 		}(s + 1)
 	}
 
@@ -91,7 +91,7 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 	return nil
 }
 
-func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, workers int, rps int, errLog *ErrorLog) {
+func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, workers int, rps int, errLog *ErrorLog, onProgress ProgressFunc) {
 	log.Printf("[S%d] Starting: %d pages, %d workers, %d req/s", scraperID, totalPages, workers, rps)
 
 	limiter := rate.NewLimiter(rate.Limit(rps), rps*2)
@@ -115,7 +115,7 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 	// Progress reporter goroutine
 	done := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
@@ -135,6 +135,10 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 				pct := float64(pd) / float64(totalPages) * 100
 				log.Printf("[S%d] %d/%d pages (%.1f%%) | %d new bids | %d errors | %.1f pages/s | ETA %s",
 					scraperID, pd, totalPages, pct, sc, er, pagesPerSec, eta.Round(time.Second))
+				if onProgress != nil {
+					msg := fmt.Sprintf("%.1f%% — %d pages, %d new bids, ETA %s", pct, pd, sc, eta.Round(time.Second))
+					onProgress(pd, int64(totalPages), er, msg)
+				}
 			}
 		}
 	}()
@@ -264,7 +268,7 @@ func ScrapeBidsWithProgress(pool *SessionPool, db *sql.DB, errLog *ErrorLog, onP
 	if onProgress != nil {
 		onProgress(0, 0, 0, "Starting bid scrape...")
 	}
-	err := ScrapeBids(pool, db, 5, 30, 100, 50, errLog)
+	err := ScrapeBids(pool, db, 5, 30, 100, 50, errLog, onProgress)
 	if err != nil {
 		if onProgress != nil {
 			onProgress(0, 0, 1, fmt.Sprintf("Scrape error: %v", err))

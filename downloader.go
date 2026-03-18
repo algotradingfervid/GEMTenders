@@ -16,7 +16,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int, errLog *ErrorLog) error {
+func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int, errLog *ErrorLog, onProgress ProgressFunc) error {
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		return fmt.Errorf("create download dir: %w", err)
 	}
@@ -87,8 +87,11 @@ func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetri
 				}
 				done := atomic.AddInt64(&completed, 1)
 				if done%100 == 0 {
-					log.Printf("PDF progress: %d/%d downloaded, %d failed",
-						done, total, atomic.LoadInt64(&failed))
+					f := atomic.LoadInt64(&failed)
+					log.Printf("PDF progress: %d/%d downloaded, %d failed", done, total, f)
+					if onProgress != nil {
+						onProgress(done, total, f, fmt.Sprintf("Downloaded %d/%d PDFs", done, total))
+					}
 				}
 			}
 		}(w)
@@ -153,7 +156,7 @@ func downloadPDF(client *http.Client, bidIDParent int, downloadDir string) error
 	return nil
 }
 
-func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int, errLog *ErrorLog) error {
+func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int, errLog *ErrorLog, onProgress ProgressFunc) error {
 	corrDir := filepath.Join(downloadDir, "corrigendums")
 	if err := os.MkdirAll(corrDir, 0755); err != nil {
 		return fmt.Errorf("create corrigendum dir: %w", err)
@@ -260,7 +263,7 @@ func DownloadPDFsWithProgress(db *sql.DB, downloadDir string, errLog *ErrorLog, 
 	if onProgress != nil {
 		onProgress(0, 0, 0, "Starting bid PDF downloads...")
 	}
-	err := DownloadPDFs(db, downloadDir, 100, 50, 5, errLog)
+	err := DownloadPDFs(db, downloadDir, 100, 50, 5, errLog, onProgress)
 	if err != nil {
 		if onProgress != nil {
 			onProgress(0, 0, 1, fmt.Sprintf("Bid PDF download error: %v", err))
@@ -271,7 +274,7 @@ func DownloadPDFsWithProgress(db *sql.DB, downloadDir string, errLog *ErrorLog, 
 		onProgress(0, 0, 0, "Bid PDF downloads completed, starting corrigendum PDF downloads...")
 	}
 
-	err = DownloadCorrigendumPDFs(db, downloadDir, 100, 50, 5, errLog)
+	err = DownloadCorrigendumPDFs(db, downloadDir, 100, 50, 5, errLog, onProgress)
 	if err != nil {
 		if onProgress != nil {
 			onProgress(0, 0, 1, fmt.Sprintf("Corrigendum PDF download error: %v", err))

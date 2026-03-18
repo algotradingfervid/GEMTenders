@@ -207,7 +207,7 @@ func readResponseBody(resp *http.Response) ([]byte, error) {
 }
 
 // ScrapeCorrigendums checks all active bids for corrigendum/representation updates.
-func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int, errLog *ErrorLog) error {
+func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int, errLog *ErrorLog, onProgress ProgressFunc) error {
 	bidIDs, err := GetActiveBidIDs(db)
 	if err != nil {
 		return fmt.Errorf("get active bids: %w", err)
@@ -261,6 +261,10 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int, err
 				pct := float64(ch+er) / float64(totalBids) * 100
 				log.Printf("[corrigendum] %d/%d (%.1f%%) | %d updated | %d errors | %.1f bids/s | ETA %s",
 					ch+er, totalBids, pct, up, er, bidsPerSec, eta.Round(time.Second))
+				if onProgress != nil {
+					msg := fmt.Sprintf("%.1f%% — %d/%d bids checked, %d updated, ETA %s", pct, ch+er, totalBids, up, eta.Round(time.Second))
+					onProgress(ch+er, totalBids, er, msg)
+				}
 			}
 		}
 	}()
@@ -306,7 +310,7 @@ func ScrapeCorrigenumsWithProgress(pool *SessionPool, db *sql.DB, errLog *ErrorL
 	if onProgress != nil {
 		onProgress(0, 0, 0, "Starting corrigendum scrape...")
 	}
-	err := ScrapeCorrigendums(pool, db, 100, 50, errLog)
+	err := ScrapeCorrigendums(pool, db, 100, 50, errLog, onProgress)
 	if err != nil {
 		if onProgress != nil {
 			onProgress(0, 0, 1, fmt.Sprintf("Corrigendum scrape error: %v", err))
