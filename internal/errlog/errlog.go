@@ -1,9 +1,10 @@
-package main
+package errlog
 
 import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -18,10 +19,11 @@ type ErrorLog struct {
 	path   string
 }
 
-// NewErrorLog creates a timestamped error log file in the working directory.
+// NewErrorLog creates a timestamped error log file in the logs/ directory.
 // Returns a no-op logger if file creation fails (logs warning to stderr).
 func NewErrorLog(prefix string) *ErrorLog {
-	path := fmt.Sprintf("%s_errors_%s.log", prefix, time.Now().Format("2006-01-02_15-04-05"))
+	os.MkdirAll("logs", 0755)
+	path := filepath.Join("logs", fmt.Sprintf("%s_errors_%s.log", prefix, time.Now().Format("2006-01-02_15-04-05")))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		log.Printf("Warning: could not create error log %s: %v", path, err)
@@ -36,7 +38,7 @@ func NewErrorLog(prefix string) *ErrorLog {
 }
 
 // Log writes an error entry to both stderr and the log file.
-func (e *ErrorLog) Log(category string, id interface{}, err error) {
+func (e *ErrorLog) Log(category string, id any, err error) {
 	msg := fmt.Sprintf("[%s] id=%v error=%v", category, id, err)
 	log.Printf("%s", msg)
 	e.mu.Lock()

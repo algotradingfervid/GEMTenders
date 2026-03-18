@@ -1,57 +1,34 @@
-package main
+package manager
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
 	"time"
+
+	"gemtenders/internal/downloader"
+	"gemtenders/internal/errlog"
+	"gemtenders/internal/models"
+	"gemtenders/internal/scraper"
+	"gemtenders/internal/session"
+	"gemtenders/internal/store"
 )
-
-// ScrapeTask identifies a pipeline stage.
-type ScrapeTask string
-
-const (
-	TaskScrape      ScrapeTask = "scrape"
-	TaskDownload    ScrapeTask = "download"
-	TaskCorrigendum ScrapeTask = "corrigendum"
-)
-
-// ScrapeProgress is the real-time status snapshot sent to SSE listeners.
-type ScrapeProgress struct {
-	Task       ScrapeTask `json:"task"`
-	Status     string     `json:"status"` // "running", "completed", "error"
-	Message    string     `json:"message"`
-	Current    int64      `json:"current"`
-	Total      int64      `json:"total"`
-	Errors     int64      `json:"errors"`
-	StartedAt  time.Time  `json:"started_at"`
-	ElapsedSec float64    `json:"elapsed_sec"`
-}
-
-// JSON serialises the progress for SSE data lines.
-func (p ScrapeProgress) JSON() string {
-	p.ElapsedSec = time.Since(p.StartedAt).Seconds()
-	b, _ := json.Marshal(p)
-	return string(b)
-}
 
 // ScrapeManager coordinates background scrape runs and fans progress out to SSE listeners.
 type ScrapeManager struct {
 	mu        sync.RWMutex
 	running   bool
-	tasks     []ScrapeTask
-	progress  ScrapeProgress
-	listeners map[chan ScrapeProgress]struct{}
+	progress  models.ScrapeProgress
+	listeners map[chan models.ScrapeProgress]struct{}
 	cancel    context.CancelFunc
-	lastRun   *ScrapeProgress
+	lastRun   *models.ScrapeProgress
 }
 
 // NewScrapeManager returns an initialised manager.
 func NewScrapeManager() *ScrapeManager {
 	return &ScrapeManager{
-		listeners: make(map[chan ScrapeProgress]struct{}),
+		listeners: make(map[chan models.ScrapeProgress]struct{}),
 	}
 }
 
@@ -63,7 +40,7 @@ func (sm *ScrapeManager) IsRunning() bool {
 }
 
 // GetProgress returns a snapshot of the current (or most recent) progress.
-func (sm *ScrapeManager) GetProgress() ScrapeProgress {
+func (sm *ScrapeManager) GetProgress() models.ScrapeProgress {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	p := sm.progress
@@ -74,15 +51,15 @@ func (sm *ScrapeManager) GetProgress() ScrapeProgress {
 }
 
 // GetLastRun returns the final progress of the last completed run, or nil.
-func (sm *ScrapeManager) GetLastRun() *ScrapeProgress {
+func (sm *ScrapeManager) GetLastRun() *models.ScrapeProgress {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.lastRun
 }
 
 // Subscribe returns a buffered channel that receives progress updates.
-func (sm *ScrapeManager) Subscribe() chan ScrapeProgress {
-	ch := make(chan ScrapeProgress, 16)
+func (sm *ScrapeManager) Subscribe() chan models.ScrapeProgress {
+	ch := make(chan models.ScrapeProgress, 16)
 	sm.mu.Lock()
 	sm.listeners[ch] = struct{}{}
 	sm.mu.Unlock()
@@ -90,7 +67,7 @@ func (sm *ScrapeManager) Subscribe() chan ScrapeProgress {
 }
 
 // Unsubscribe removes a listener and closes its channel.
-func (sm *ScrapeManager) Unsubscribe(ch chan ScrapeProgress) {
+func (sm *ScrapeManager) Unsubscribe(ch chan models.ScrapeProgress) {
 	sm.mu.Lock()
 	delete(sm.listeners, ch)
 	sm.mu.Unlock()
@@ -99,7 +76,7 @@ func (sm *ScrapeManager) Unsubscribe(ch chan ScrapeProgress) {
 
 // broadcast sends a progress snapshot to every listener.
 // Drops the message for any slow consumer whose buffer is full.
-func (sm *ScrapeManager) broadcast(p ScrapeProgress) {
+func (sm *ScrapeManager) broadcast(p models.ScrapeProgress) {
 	if !p.StartedAt.IsZero() {
 		p.ElapsedSec = time.Since(p.StartedAt).Seconds()
 	}
@@ -121,7 +98,8 @@ func (sm *ScrapeManager) broadcast(p ScrapeProgress) {
 // dbPath and sessionCount are used to open a fresh DB connection and bootstrap sessions
 // inside the goroutine (SQLite connections are not safe to share across goroutines that
 // do heavy concurrent writes).
-func (sm *ScrapeManager) Start(dbPath string, tasks []ScrapeTask, sessionCount int) error {
+// downloadDir is the directory for PDF downloads.
+func (sm *ScrapeManager) Start(dbPath string, tasks []models.ScrapeTask, sessionCount int, downloadDir string) error {
 	if len(tasks) == 0 {
 		return fmt.Errorf("no tasks specified")
 	}
@@ -132,12 +110,11 @@ func (sm *ScrapeManager) Start(dbPath string, tasks []ScrapeTask, sessionCount i
 		return fmt.Errorf("scrape already running")
 	}
 	sm.running = true
-	sm.tasks = tasks
 	ctx, cancel := context.WithCancel(context.Background())
 	sm.cancel = cancel
 	sm.mu.Unlock()
 
-	go sm.run(ctx, dbPath, tasks, sessionCount)
+	go sm.run(ctx, dbPath, tasks, sessionCount, downloadDir)
 	return nil
 }
 
@@ -152,7 +129,7 @@ func (sm *ScrapeManager) Stop() {
 }
 
 // run executes the requested tasks sequentially in the background.
-func (sm *ScrapeManager) run(ctx context.Context, dbPath string, tasks []ScrapeTask, sessionCount int) {
+func (sm *ScrapeManager) run(ctx context.Context, dbPath string, tasks []models.ScrapeTask, sessionCount int, downloadDir string) {
 	startTime := time.Now()
 	defer func() {
 		sm.mu.Lock()
@@ -162,9 +139,9 @@ func (sm *ScrapeManager) run(ctx context.Context, dbPath string, tasks []ScrapeT
 	}()
 
 	// Open a dedicated DB connection for this run
-	db, err := InitDB(dbPath)
+	db, err := store.InitDB(dbPath)
 	if err != nil {
-		p := ScrapeProgress{Task: tasks[0], Status: "error", Message: fmt.Sprintf("DB init failed: %v", err), StartedAt: startTime}
+		p := models.ScrapeProgress{Task: tasks[0], Status: models.StatusError, Message: fmt.Sprintf("DB init failed: %v", err), StartedAt: startTime}
 		sm.broadcast(p)
 		sm.mu.Lock()
 		sm.lastRun = &p
@@ -175,19 +152,19 @@ func (sm *ScrapeManager) run(ctx context.Context, dbPath string, tasks []ScrapeT
 
 	// Only bootstrap sessions if scrape or corrigendum tasks are requested
 	// (downloads don't need CSRF tokens or authenticated sessions)
-	var pool *SessionPool
+	var pool *session.SessionPool
 	needsSessions := false
 	for _, t := range tasks {
-		if t == TaskScrape || t == TaskCorrigendum {
+		if t == models.TaskScrape || t == models.TaskCorrigendum {
 			needsSessions = true
 			break
 		}
 	}
 	if needsSessions {
-		sm.broadcast(ScrapeProgress{Task: tasks[0], Status: "running", Message: "Bootstrapping sessions...", StartedAt: startTime})
-		pool, err = BootstrapSessions(sessionCount)
+		sm.broadcast(models.ScrapeProgress{Task: tasks[0], Status: models.StatusRunning, Message: "Bootstrapping sessions...", StartedAt: startTime})
+		pool, err = session.BootstrapSessions(sessionCount)
 		if err != nil {
-			p := ScrapeProgress{Task: tasks[0], Status: "error", Message: fmt.Sprintf("Session bootstrap failed: %v", err), StartedAt: startTime}
+			p := models.ScrapeProgress{Task: tasks[0], Status: models.StatusError, Message: fmt.Sprintf("Session bootstrap failed: %v", err), StartedAt: startTime}
 			sm.broadcast(p)
 			sm.mu.Lock()
 			sm.lastRun = &p
@@ -196,12 +173,12 @@ func (sm *ScrapeManager) run(ctx context.Context, dbPath string, tasks []ScrapeT
 		}
 	}
 
-	errLog := NewErrorLog("web-scrape")
+	errLog := errlog.NewErrorLog("web-scrape")
 	defer errLog.Close()
 
 	for _, task := range tasks {
 		if ctx.Err() != nil {
-			p := ScrapeProgress{Task: task, Status: "error", Message: "Cancelled", StartedAt: startTime}
+			p := models.ScrapeProgress{Task: task, Status: models.StatusError, Message: "Cancelled", StartedAt: startTime}
 			sm.broadcast(p)
 			sm.mu.Lock()
 			sm.lastRun = &p
@@ -209,17 +186,17 @@ func (sm *ScrapeManager) run(ctx context.Context, dbPath string, tasks []ScrapeT
 			return
 		}
 
-		sm.broadcast(ScrapeProgress{
+		sm.broadcast(models.ScrapeProgress{
 			Task:      task,
-			Status:    "running",
+			Status:    models.StatusRunning,
 			Message:   fmt.Sprintf("Starting %s...", task),
 			StartedAt: startTime,
 		})
 
 		onProgress := func(current, total, errors int64, msg string) {
-			sm.broadcast(ScrapeProgress{
+			sm.broadcast(models.ScrapeProgress{
 				Task:      task,
-				Status:    "running",
+				Status:    models.StatusRunning,
 				Message:   msg,
 				Current:   current,
 				Total:     total,
@@ -230,36 +207,36 @@ func (sm *ScrapeManager) run(ctx context.Context, dbPath string, tasks []ScrapeT
 
 		var taskErr error
 		switch task {
-		case TaskScrape:
-			taskErr = ScrapeBidsWithProgress(pool, db, errLog, onProgress)
-		case TaskDownload:
-			taskErr = DownloadPDFsWithProgress(db, "downloads", errLog, onProgress)
-		case TaskCorrigendum:
-			taskErr = ScrapeCorrigenumsWithProgress(pool, db, errLog, onProgress)
+		case models.TaskScrape:
+			taskErr = scraper.ScrapeBidsWithProgress(pool, db, errLog, onProgress)
+		case models.TaskDownload:
+			taskErr = downloader.DownloadPDFsWithProgress(db, downloadDir, errLog, onProgress)
+		case models.TaskCorrigendum:
+			taskErr = scraper.ScrapeCorrigenumsWithProgress(pool, db, errLog, onProgress)
 		default:
 			log.Printf("[scrape-manager] unknown task: %s", task)
 		}
 
 		if taskErr != nil {
-			sm.broadcast(ScrapeProgress{
+			sm.broadcast(models.ScrapeProgress{
 				Task:      task,
-				Status:    "error",
+				Status:    models.StatusError,
 				Message:   taskErr.Error(),
 				StartedAt: startTime,
 			})
 		} else {
-			sm.broadcast(ScrapeProgress{
+			sm.broadcast(models.ScrapeProgress{
 				Task:      task,
-				Status:    "running",
+				Status:    models.StatusRunning,
 				Message:   fmt.Sprintf("%s finished", task),
 				StartedAt: startTime,
 			})
 		}
 	}
 
-	final := ScrapeProgress{
+	final := models.ScrapeProgress{
 		Task:      tasks[len(tasks)-1],
-		Status:    "completed",
+		Status:    models.StatusCompleted,
 		Message:   "All tasks completed",
 		StartedAt: startTime,
 	}

@@ -1,8 +1,10 @@
-package main
+package store
 
 import (
 	"path/filepath"
 	"testing"
+
+	"gemtenders/internal/models"
 )
 
 func TestInitDB(t *testing.T) {
@@ -34,7 +36,7 @@ func TestInsertAndQuery(t *testing.T) {
 	}
 	defer db.Close()
 
-	doc := BidDoc{
+	doc := models.BidDoc{
 		ID:              "123",
 		BidID:           []int{123},
 		BidNumber:       []string{"GEM/2026/R/100"},
@@ -47,9 +49,9 @@ func TestInsertAndQuery(t *testing.T) {
 		DepartmentName:  []string{"Dept of Test"},
 	}
 
-	err = InsertBid(db, doc)
+	_, err = InsertBidsBatch(db, []models.BidDoc{doc})
 	if err != nil {
-		t.Fatalf("InsertBid failed: %v", err)
+		t.Fatalf("InsertBidsBatch failed: %v", err)
 	}
 
 	total, downloaded, err := GetBidCount(db)
@@ -123,7 +125,7 @@ func TestUpsertBidOtherDetails(t *testing.T) {
 	defer db.Close()
 
 	// Insert
-	details := BidOtherDetails{
+	details := models.BidOtherDetails{
 		BidID:              123,
 		HasCorrigendum:     1,
 		HasRepresentation:  0,
@@ -179,7 +181,7 @@ func TestInsertCorrigendumDoc(t *testing.T) {
 	}
 	defer db.Close()
 
-	doc := CorrigendumDoc{
+	doc := models.CorrigendumDoc{
 		BidID:         123,
 		CorrigendumID: 456,
 		DownloadURL:   "/bidding/bid/showcorrigendumpdf/456/123",
@@ -219,15 +221,19 @@ func TestGetActiveBidIDs(t *testing.T) {
 	defer db.Close()
 
 	// Insert one future bid, one past bid
-	InsertBid(db, BidDoc{
-		ID:      "1",
-		BidID:   []int{1},
-		EndDate: []string{"2099-12-31T00:00:00Z"},
+	InsertBidsBatch(db, []models.BidDoc{
+		{
+			ID:      "1",
+			BidID:   []int{1},
+			EndDate: []string{"2099-12-31T00:00:00Z"},
+		},
 	})
-	InsertBid(db, BidDoc{
-		ID:      "2",
-		BidID:   []int{2},
-		EndDate: []string{"2020-01-01T00:00:00Z"},
+	InsertBidsBatch(db, []models.BidDoc{
+		{
+			ID:      "2",
+			BidID:   []int{2},
+			EndDate: []string{"2020-01-01T00:00:00Z"},
+		},
 	})
 
 	ids, err := GetActiveBidIDs(db)
@@ -248,10 +254,12 @@ func TestUpdateBidEndDate(t *testing.T) {
 	}
 	defer db.Close()
 
-	InsertBid(db, BidDoc{
-		ID:      "1",
-		BidID:   []int{1},
-		EndDate: []string{"2026-03-18T09:00:00Z"},
+	InsertBidsBatch(db, []models.BidDoc{
+		{
+			ID:      "1",
+			BidID:   []int{1},
+			EndDate: []string{"2026-03-18T09:00:00Z"},
+		},
 	})
 
 	err = UpdateBidEndDate(db, 1, "2026-04-01T09:00:00Z")
@@ -283,10 +291,12 @@ func TestCorrigendumEndToEnd(t *testing.T) {
 	defer db.Close()
 
 	// Insert a bid with future end_date
-	InsertBid(db, BidDoc{
-		ID:      "100",
-		BidID:   []int{100},
-		EndDate: []string{"2099-12-31T00:00:00Z"},
+	InsertBidsBatch(db, []models.BidDoc{
+		{
+			ID:      "100",
+			BidID:   []int{100},
+			EndDate: []string{"2099-12-31T00:00:00Z"},
+		},
 	})
 
 	// Verify it shows as active
@@ -296,7 +306,7 @@ func TestCorrigendumEndToEnd(t *testing.T) {
 	}
 
 	// Simulate: other-details says corrigendum=true
-	details := BidOtherDetails{
+	details := models.BidOtherDetails{
 		BidID:            100,
 		HasCorrigendum:   1,
 		CorrigendumHTML:  `<div class="well">first version</div>`,
@@ -306,7 +316,7 @@ func TestCorrigendumEndToEnd(t *testing.T) {
 	UpsertBidOtherDetails(db, details)
 
 	// Insert a corrigendum document
-	InsertCorrigendumDoc(db, CorrigendumDoc{
+	InsertCorrigendumDoc(db, models.CorrigendumDoc{
 		BidID:         100,
 		CorrigendumID: 555,
 		DownloadURL:   "/bidding/bid/showcorrigendumpdf/555/100",
@@ -353,7 +363,7 @@ func TestInsertBatchAndDuplicates(t *testing.T) {
 	}
 	defer db.Close()
 
-	docs := []BidDoc{
+	docs := []models.BidDoc{
 		{ID: "1", BidID: []int{1}, BidIDParent: []int{10}},
 		{ID: "2", BidID: []int{2}, BidIDParent: []int{20}},
 		{ID: "1", BidID: []int{1}, BidIDParent: []int{10}}, // duplicate

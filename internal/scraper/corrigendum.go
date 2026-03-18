@@ -1,12 +1,10 @@
-package main
+package scraper
 
 import (
-	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -18,6 +16,11 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"gemtenders/internal/errlog"
+	"gemtenders/internal/models"
+	"gemtenders/internal/session"
+	"gemtenders/internal/store"
 )
 
 var (
@@ -35,26 +38,26 @@ var (
 )
 
 // ParseCorrigendumDocs extracts download links from corrigendum HTML.
-func ParseCorrigendumDocs(html string, bidID int) []CorrigendumDoc {
-	var docs []CorrigendumDoc
+func ParseCorrigendumDocs(html string, bidID int) []models.CorrigendumDoc {
+	var docs []models.CorrigendumDoc
+
+	// Pre-extract all modified-on matches into a map to avoid N*M regex work
+	modMap := make(map[string]string)
+	for _, mod := range reModifiedOn.FindAllStringSubmatch(html, -1) {
+		modMap[mod[1]] = strings.TrimSpace(mod[2])
+	}
 
 	linkMatches := reCorrigendumPDFLink.FindAllStringSubmatch(html, -1)
 	for _, m := range linkMatches {
 		corrID, _ := strconv.Atoi(m[2])
-		doc := CorrigendumDoc{
+		doc := models.CorrigendumDoc{
 			BidID:         bidID,
 			CorrigendumID: corrID,
 			DownloadURL:   m[1],
 		}
 
-		// Find modified_on for this corrigendum_id by looking for span_{id}
-		modMatches := reModifiedOn.FindAllStringSubmatch(html, -1)
-		for _, mod := range modMatches {
-			if mod[1] == m[2] {
-				doc.ModifiedOn = strings.TrimSpace(mod[2])
-				break
-			}
-		}
+		// Look up modified_on from pre-built map
+		doc.ModifiedOn = modMap[m[2]]
 
 		docs = append(docs, doc)
 	}
@@ -88,16 +91,16 @@ func ParseCorrigendumCount(html string) int {
 
 // FetchOtherDetails calls POST /public-bid-other-details/{bid_id}
 // Returns whether corrigendum and representation exist for this bid.
-func FetchOtherDetails(sp *SessionPair, bidID int) (hasCorr bool, hasRepr bool, err error) {
+func FetchOtherDetails(sp *session.SessionPair, bidID int) (hasCorr bool, hasRepr bool, err error) {
 	formData := url.Values{}
 	formData.Set("csrf_bd_gem_nk", sp.CSRFToken)
 
-	reqURL := fmt.Sprintf("%s/public-bid-other-details/%d", baseURL, bidID)
+	reqURL := fmt.Sprintf("%s/public-bid-other-details/%d", session.BaseURL, bidID)
 	req, err := http.NewRequest("POST", reqURL, strings.NewReader(formData.Encode()))
 	if err != nil {
 		return false, false, err
 	}
-	setAjaxHeaders(req)
+	session.SetAjaxHeaders(req)
 
 	resp, err := sp.Client.Do(req)
 	if err != nil {
@@ -105,12 +108,12 @@ func FetchOtherDetails(sp *SessionPair, bidID int) (hasCorr bool, hasRepr bool, 
 	}
 	defer resp.Body.Close()
 
-	body, err := readResponseBody(resp)
+	body, err := session.ReadResponseBody(resp)
 	if err != nil {
 		return false, false, err
 	}
 
-	var apiResp OtherDetailsResponse
+	var apiResp models.OtherDetailsResponse
 	if err := json.Unmarshal(body, &apiResp); err != nil {
 		return false, false, fmt.Errorf("unmarshal: %w", err)
 	}
@@ -120,16 +123,16 @@ func FetchOtherDetails(sp *SessionPair, bidID int) (hasCorr bool, hasRepr bool, 
 
 // FetchCorrigendumHTML calls POST /bidding/bid/viewCorrigendum/{bid_id}
 // Returns the raw HTML response body.
-func FetchCorrigendumHTML(sp *SessionPair, bidID int) (string, error) {
+func FetchCorrigendumHTML(sp *session.SessionPair, bidID int) (string, error) {
 	formData := url.Values{}
 	formData.Set("csrf_bd_gem_nk", sp.CSRFToken)
 
-	reqURL := fmt.Sprintf("%s/bidding/bid/viewCorrigendum/%d", baseURL, bidID)
+	reqURL := fmt.Sprintf("%s/bidding/bid/viewCorrigendum/%d", session.BaseURL, bidID)
 	req, err := http.NewRequest("POST", reqURL, strings.NewReader(formData.Encode()))
 	if err != nil {
 		return "", err
 	}
-	setAjaxHeaders(req)
+	session.SetAjaxHeaders(req)
 	req.Header.Set("Accept", "text/html, */*; q=0.01")
 
 	resp, err := sp.Client.Do(req)
@@ -138,7 +141,7 @@ func FetchCorrigendumHTML(sp *SessionPair, bidID int) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := readResponseBody(resp)
+	body, err := session.ReadResponseBody(resp)
 	if err != nil {
 		return "", err
 	}
@@ -148,8 +151,8 @@ func FetchCorrigendumHTML(sp *SessionPair, bidID int) (string, error) {
 
 // FetchRepresentationHTML calls GET /publish-representations/{bid_id}
 // Returns the raw HTML response body.
-func FetchRepresentationHTML(sp *SessionPair, bidID int) (string, error) {
-	reqURL := fmt.Sprintf("%s/publish-representations/%d", baseURL, bidID)
+func FetchRepresentationHTML(sp *session.SessionPair, bidID int) (string, error) {
+	reqURL := fmt.Sprintf("%s/publish-representations/%d", session.BaseURL, bidID)
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return "", err
@@ -157,8 +160,8 @@ func FetchRepresentationHTML(sp *SessionPair, bidID int) (string, error) {
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Referer", baseURL+"/all-bids")
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Referer", session.BaseURL+"/all-bids")
+	req.Header.Set("User-Agent", session.UserAgent)
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 
 	resp, err := sp.Client.Do(req)
@@ -167,7 +170,7 @@ func FetchRepresentationHTML(sp *SessionPair, bidID int) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := readResponseBody(resp)
+	body, err := session.ReadResponseBody(resp)
 	if err != nil {
 		return "", err
 	}
@@ -175,40 +178,9 @@ func FetchRepresentationHTML(sp *SessionPair, bidID int) (string, error) {
 	return string(body), nil
 }
 
-// setAjaxHeaders sets common headers for GEM AJAX requests.
-func setAjaxHeaders(req *http.Request) {
-	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	req.Header.Set("Origin", baseURL)
-	req.Header.Set("Referer", baseURL+"/all-bids")
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-}
-
-// readResponseBody reads the response body, handling gzip if needed.
-func readResponseBody(resp *http.Response) ([]byte, error) {
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("status %d", resp.StatusCode)
-	}
-
-	var reader io.Reader = resp.Body
-	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gzReader, err := gzip.NewReader(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("gzip reader: %w", err)
-		}
-		defer gzReader.Close()
-		reader = gzReader
-	}
-
-	return io.ReadAll(reader)
-}
-
 // ScrapeCorrigendums checks all active bids for corrigendum/representation updates.
-func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int, errLog *ErrorLog, onProgress ProgressFunc) error {
-	bidIDs, err := GetActiveBidIDs(db)
+func ScrapeCorrigendums(pool *session.SessionPool, db *sql.DB, workers int, rps int, errLog *errlog.ErrorLog, onProgress models.ProgressFunc) error {
+	bidIDs, err := store.GetActiveBidIDs(db)
 	if err != nil {
 		return fmt.Errorf("get active bids: %w", err)
 	}
@@ -269,7 +241,7 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int, err
 		}
 	}()
 
-	for w := 0; w < workers; w++ {
+	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -305,25 +277,14 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int, err
 }
 
 // ScrapeCorrigenumsWithProgress wraps ScrapeCorrigendums with progress callbacks.
-// Uses reasonable defaults: 100 workers, 50 rps.
-func ScrapeCorrigenumsWithProgress(pool *SessionPool, db *sql.DB, errLog *ErrorLog, onProgress ProgressFunc) error {
-	if onProgress != nil {
-		onProgress(0, 0, 0, "Starting corrigendum scrape...")
-	}
-	err := ScrapeCorrigendums(pool, db, 100, 50, errLog, onProgress)
-	if err != nil {
-		if onProgress != nil {
-			onProgress(0, 0, 1, fmt.Sprintf("Corrigendum scrape error: %v", err))
-		}
-		return err
-	}
-	if onProgress != nil {
-		onProgress(0, 0, 0, "Corrigendum scrape completed")
-	}
-	return nil
+func ScrapeCorrigenumsWithProgress(pool *session.SessionPool, db *sql.DB, errLog *errlog.ErrorLog, onProgress models.ProgressFunc) error {
+	return models.RunWithProgress("corrigendum scrape", onProgress, func(p models.ProgressFunc) error {
+		cfg := models.DefaultScrapeConfig
+		return ScrapeCorrigendums(pool, db, cfg.Workers, cfg.RPS, errLog, p)
+	})
 }
 
-func processOneBid(sp *SessionPair, db *sql.DB, bidID int, limiter *rate.Limiter) (changed bool, err error) {
+func processOneBid(sp *session.SessionPair, db *sql.DB, bidID int, limiter *rate.Limiter) (changed bool, err error) {
 	// Step 1: Check flags
 	hasCorr, hasRepr, err := FetchOtherDetails(sp, bidID)
 	if err != nil {
@@ -333,12 +294,12 @@ func processOneBid(sp *SessionPair, db *sql.DB, bidID int, limiter *rate.Limiter
 	now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 
 	// Load existing record (may not exist)
-	existing, _ := GetBidOtherDetails(db, bidID)
+	existing, _ := store.GetBidOtherDetails(db, bidID)
 
-	details := BidOtherDetails{
+	details := models.BidOtherDetails{
 		BidID:             bidID,
-		HasCorrigendum:    boolToInt(hasCorr),
-		HasRepresentation: boolToInt(hasRepr),
+		HasCorrigendum:    models.BoolToInt(hasCorr),
+		HasRepresentation: models.BoolToInt(hasRepr),
 		LastChecked:       now,
 	}
 
@@ -367,7 +328,7 @@ func processOneBid(sp *SessionPair, db *sql.DB, bidID int, limiter *rate.Limiter
 			// Extract and insert document links
 			docs := ParseCorrigendumDocs(html, bidID)
 			for _, doc := range docs {
-				if err := InsertCorrigendumDoc(db, doc); err != nil {
+				if err := store.InsertCorrigendumDoc(db, doc); err != nil {
 					log.Printf("[corrigendum] insert doc error bid=%d corr=%d: %v", bidID, doc.CorrigendumID, err)
 				}
 			}
@@ -376,7 +337,7 @@ func processOneBid(sp *SessionPair, db *sql.DB, bidID int, limiter *rate.Limiter
 			latestDate := ParseLatestEndDate(html)
 			if latestDate != "" {
 				details.LatestEndDate = latestDate
-				if err := UpdateBidEndDate(db, bidID, latestDate); err != nil {
+				if err := store.UpdateBidEndDate(db, bidID, latestDate); err != nil {
 					log.Printf("[corrigendum] update end_date error bid=%d date=%s: %v", bidID, latestDate, err)
 				}
 			}
@@ -398,7 +359,7 @@ func processOneBid(sp *SessionPair, db *sql.DB, bidID int, limiter *rate.Limiter
 	}
 
 	// Step 4: Upsert
-	if err := UpsertBidOtherDetails(db, details); err != nil {
+	if err := store.UpsertBidOtherDetails(db, details); err != nil {
 		return false, fmt.Errorf("bid %d upsert: %w", bidID, err)
 	}
 

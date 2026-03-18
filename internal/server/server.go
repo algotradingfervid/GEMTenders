@@ -1,23 +1,25 @@
-package main
+package server
 
 import (
 	"database/sql"
 	"fmt"
 	"html/template"
 	"log"
+	"net/http"
 	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"gemtenders/internal/manager"
+	"gemtenders/internal/store"
 )
 
-func StartServer(db *sql.DB, downloadDir string, addr string, sm *ScrapeManager, dbPath string, sessionCount int) {
-	// Init FTS
-	if err := InitFTS(db); err != nil {
+// StartServer initializes routes and starts the HTTP server.
+func StartServer(db *sql.DB, downloadDir string, addr string, sm *manager.ScrapeManager, dbPath string, sessionCount int) {
+	// Init FTS (create virtual table if not exists) — do NOT rebuild on startup
+	if err := store.InitFTS(db); err != nil {
 		log.Fatalf("Failed to init FTS: %v", err)
-	}
-	if err := RebuildFTS(db); err != nil {
-		log.Fatalf("Failed to rebuild FTS: %v", err)
 	}
 
 	r := gin.Default()
@@ -47,30 +49,7 @@ func StartServer(db *sql.DB, downloadDir string, addr string, sm *ScrapeManager,
 	})
 	r.GET("/search", SearchHandler(db))
 
-	r.GET("/tender/:id", func(c *gin.Context) {
-		id := c.Param("id")
-		bid, err := GetBidByID(db, id)
-		if err != nil {
-			c.HTML(404, "index.tmpl", nil)
-			return
-		}
-
-		pdfID := bid.BidIDParent
-		if pdfID == 0 {
-			pdfID = bid.BidID
-		}
-
-		// Fetch corrigendum details
-		otherDetails, _ := GetBidOtherDetails(db, bid.BidID)
-		corrDocs, _ := GetCorrigendumDocsForBid(db, bid.BidID)
-
-		c.HTML(200, "tender.tmpl", gin.H{
-			"Bid":          bid,
-			"PDFID":        pdfID,
-			"OtherDetails": otherDetails,
-			"CorrDocs":     corrDocs,
-		})
-	})
+	r.GET("/tender/:id", TenderHandler(db))
 
 	r.GET("/pdf/:id", func(c *gin.Context) {
 		id := c.Param("id")
@@ -90,14 +69,24 @@ func StartServer(db *sql.DB, downloadDir string, addr string, sm *ScrapeManager,
 	r.GET("/dashboard", DashboardPage)
 
 	// Stats API
-	r.GET("/api/stats/summary", SummaryHandler(db))
-	r.GET("/api/stats/pipeline", PipelineHandler(db))
-	r.GET("/api/stats/departments", DepartmentsBreakdownHandler(db))
-	r.GET("/api/stats/categories", CategoriesBreakdownHandler(db))
-	r.GET("/api/stats/timeline", TimelineHandler(db))
+	r.GET("/api/stats/summary", jsonHandler(func(c *gin.Context) (any, error) {
+		return store.GetSummaryStats(db)
+	}))
+	r.GET("/api/stats/pipeline", jsonHandler(func(c *gin.Context) (any, error) {
+		return store.GetPipelineStats(db)
+	}))
+	r.GET("/api/stats/departments", jsonHandler(func(c *gin.Context) (any, error) {
+		return store.GetTopDepartments(db, 10)
+	}))
+	r.GET("/api/stats/categories", jsonHandler(func(c *gin.Context) (any, error) {
+		return store.GetTopCategories(db, 10)
+	}))
+	r.GET("/api/stats/timeline", jsonHandler(func(c *gin.Context) (any, error) {
+		return store.GetBidsTimeline(db, 30)
+	}))
 
 	// Scrape control API
-	r.POST("/api/scrape/start", ScrapeStartHandler(sm, dbPath, sessionCount))
+	r.POST("/api/scrape/start", ScrapeStartHandler(sm, dbPath, sessionCount, downloadDir))
 	r.GET("/api/scrape/status", ScrapeStatusHandler(sm))
 	r.GET("/api/scrape/progress", ScrapeProgressSSEHandler(sm))
 
@@ -107,4 +96,16 @@ func StartServer(db *sql.DB, downloadDir string, addr string, sm *ScrapeManager,
 
 	log.Printf("Starting server on %s", addr)
 	r.Run(addr)
+}
+
+// jsonHandler wraps a handler function that returns (any, error) into a gin.HandlerFunc.
+func jsonHandler(fn func(*gin.Context) (any, error)) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		result, err := fn(c)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, result)
+	}
 }

@@ -36,7 +36,7 @@ GEMTenders automates the process of discovering and tracking government tenders 
 ## Build
 
 ```bash
-CGO_ENABLED=1 go build -tags "fts5" -o gemscraper .
+CGO_ENABLED=1 go build -tags "fts5" -o gemscraper ./cmd/gemscraper
 ```
 
 This produces a single ~25 MB binary.
@@ -55,7 +55,7 @@ Fetches all active bid listings from the GeM API and stores them in SQLite.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-db` | `gems.db` | SQLite database path |
+| `-db` | `data/gems.db` | SQLite database path |
 | `-sessions` | `3` | Browser sessions to bootstrap |
 | `-scrapers` | `5` | Parallel scraper instances |
 | `-stagger` | `30` | Seconds between scraper launches |
@@ -72,7 +72,7 @@ Downloads bid PDF documents for all scraped bids.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-db` | `gems.db` | SQLite database path |
+| `-db` | `data/gems.db` | SQLite database path |
 | `-dir` | `downloads` | PDF output directory |
 | `-workers` | `100` | Download goroutines |
 | `-rps` | `50` | Download rate limit |
@@ -104,7 +104,7 @@ Launches the web UI for search, tender details, and the analytics dashboard.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-db` | `gems.db` | SQLite database path |
+| `-db` | `data/gems.db` | SQLite database path |
 | `-downloads` | `downloads` | PDF directory to serve |
 | `-addr` | `:28080` | Listen address |
 | `-sessions` | `3` | Sessions for background scrapes via UI |
@@ -117,7 +117,10 @@ Open `http://localhost:28080` in your browser.
 
 ```bash
 # Build
-CGO_ENABLED=1 go build -tags "fts5" -o gemscraper .
+CGO_ENABLED=1 go build -tags "fts5" -o gemscraper ./cmd/gemscraper
+
+# Create data directory
+mkdir -p data
 
 # Initial data collection
 ./gemscraper scrape
@@ -195,26 +198,34 @@ server {
 ## Project Structure
 
 ```
-├── main.go                 # CLI entry point and command router
-├── scraper.go              # Parallel bid scraping engine
-├── session.go              # HTTP session bootstrap and pool
-├── session_playwright.go   # Playwright-based WAF bypass
-├── db.go                   # SQLite schema, migrations, queries
-├── models.go               # Data structures
-├── search.go               # FTS5 search handler
-├── dashboard.go            # Dashboard stats and API handlers
-├── downloader.go           # PDF download workers
-├── corrigendum.go          # Corrigendum parsing and tracking
-├── scrape_manager.go       # Background scrape orchestration + SSE
-├── server.go               # Gin routes and template setup
-├── stats.go                # Statistics queries
-├── errlog.go               # Timestamped error logging
+├── cmd/gemscraper/
+│   └── main.go              # CLI entry point and command router
+├── internal/
+│   ├── models/models.go     # All types, configs, constants, helpers
+│   ├── session/session.go   # Session pool, bootstrap, Playwright, HTTP transport
+│   ├── store/
+│   │   ├── store.go         # SQLite schema, migrations, CRUD operations
+│   │   └── stats.go         # Dashboard statistics queries (consolidated)
+│   ├── scraper/
+│   │   ├── scraper.go       # Parallel bid scraping engine
+│   │   └── corrigendum.go   # Corrigendum parsing and tracking
+│   ├── downloader/
+│   │   └── downloader.go    # PDF download with unified retry logic
+│   ├── worker/worker.go     # Generic worker pool with rate limiting
+│   ├── manager/manager.go   # Background scrape orchestration + SSE
+│   ├── server/
+│   │   ├── server.go        # Gin routes and template setup
+│   │   └── handlers.go      # HTTP handlers (search, dashboard, scrape control)
+│   └── errlog/errlog.go     # Timestamped error logging
+├── data/                    # SQLite database (gitignored)
+├── logs/                    # Error logs (gitignored)
+├── downloads/               # PDF documents (gitignored)
 ├── web/
-│   ├── templates/          # Go HTML templates (index, results, tender, dashboard)
-│   └── static/             # CSS and JS (Tailwind, chip-select)
+│   ├── templates/           # Go HTML templates (index, results, tender, dashboard)
+│   └── static/              # CSS and JS (Tailwind, chip-select)
 └── docs/
-    ├── deployment.md       # Detailed deployment guide
-    └── scraping-process.md # Scraping architecture deep dive
+    ├── deployment.md        # Detailed deployment guide
+    └── scraping-process.md  # Scraping architecture deep dive
 ```
 
 ## License

@@ -1,4 +1,4 @@
-package main
+package downloader
 
 import (
 	"context"
@@ -14,14 +14,67 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"gemtenders/internal/errlog"
+	"gemtenders/internal/models"
+	"gemtenders/internal/session"
+	"gemtenders/internal/store"
 )
 
-func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int, errLog *ErrorLog, onProgress ProgressFunc) error {
+// downloadFile is a generic file downloader that takes url + destPath + client + maxRetries.
+func downloadFile(client *http.Client, url string, destPath string, maxRetries int) error {
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		lastErr = doDownload(client, url, destPath)
+		if lastErr == nil {
+			return nil
+		}
+		if attempt < maxRetries {
+			backoff := time.Duration(attempt) * 2 * time.Second
+			time.Sleep(backoff)
+		}
+	}
+	return fmt.Errorf("failed after %d attempts url=%s: %w", maxRetries, url, lastErr)
+}
+
+func doDownload(client *http.Client, url string, destPath string) error {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", session.UserAgent)
+	req.Header.Set("Accept", "application/pdf,application/x-pdf,*/*")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	out, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+	defer out.Close()
+
+	if _, err = io.Copy(out, resp.Body); err != nil {
+		os.Remove(destPath)
+		return fmt.Errorf("write file: %w", err)
+	}
+	return nil
+}
+
+// DownloadPDFs downloads bid PDF documents for all pending bids.
+func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int, errLog *errlog.ErrorLog, onProgress models.ProgressFunc) error {
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		return fmt.Errorf("create download dir: %w", err)
 	}
 
-	ids, err := GetPendingDownloads(db)
+	ids, err := store.GetPendingDownloads(db)
 	if err != nil {
 		return fmt.Errorf("get pending: %w", err)
 	}
@@ -31,12 +84,12 @@ func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetri
 		return nil
 	}
 
-	// Filter out already-downloaded files
+	// Filter out already-downloaded files (check file size > 0)
 	var pending []int
 	for _, id := range ids {
 		destPath := filepath.Join(downloadDir, fmt.Sprintf("GeM-Bidding-%d.pdf", id))
-		if _, err := os.Stat(destPath); err == nil {
-			if markErr := MarkPDFDownloaded(db, id); markErr != nil {
+		if info, err := os.Stat(destPath); err == nil && info.Size() > 0 {
+			if markErr := store.MarkPDFDownloaded(db, id); markErr != nil {
 				log.Printf("[pdf-download] mark-downloaded error bid=%d: %v", id, markErr)
 			}
 			continue
@@ -66,23 +119,26 @@ func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetri
 		total     = int64(len(pending))
 	)
 
-	for w := 0; w < workers; w++ {
+	for range workers {
 		wg.Add(1)
-		go func(workerID int) {
+		go func() {
 			defer wg.Done()
 			client := &http.Client{Timeout: 60 * time.Second}
 
 			for bidIDParent := range jobs {
 				limiter.Wait(context.Background())
 
-				err := downloadWithRetry(client, bidIDParent, downloadDir, maxRetries)
+				pdfURL := fmt.Sprintf("%s/showbidDocument/%d", session.BaseURL, bidIDParent)
+				destPath := filepath.Join(downloadDir, fmt.Sprintf("GeM-Bidding-%d.pdf", bidIDParent))
+
+				err := downloadFile(client, pdfURL, destPath, maxRetries)
 				if err != nil {
 					errLog.Log("pdf-download", bidIDParent, err)
 					atomic.AddInt64(&failed, 1)
 					continue
 				}
 
-				if markErr := MarkPDFDownloaded(db, bidIDParent); markErr != nil {
+				if markErr := store.MarkPDFDownloaded(db, bidIDParent); markErr != nil {
 					errLog.Log("pdf-mark-downloaded", bidIDParent, markErr)
 				}
 				done := atomic.AddInt64(&completed, 1)
@@ -94,7 +150,7 @@ func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetri
 					}
 				}
 			}
-		}(w)
+		}()
 	}
 
 	wg.Wait()
@@ -102,67 +158,14 @@ func DownloadPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetri
 	return nil
 }
 
-func downloadWithRetry(client *http.Client, bidIDParent int, downloadDir string, maxRetries int) error {
-	var lastErr error
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		lastErr = downloadPDF(client, bidIDParent, downloadDir)
-		if lastErr == nil {
-			return nil
-		}
-		if attempt < maxRetries {
-			backoff := time.Duration(attempt) * 2 * time.Second
-			time.Sleep(backoff)
-		}
-	}
-	return fmt.Errorf("failed after %d attempts for bid %d: %w", maxRetries, bidIDParent, lastErr)
-}
-
-func downloadPDF(client *http.Client, bidIDParent int, downloadDir string) error {
-	pdfURL := fmt.Sprintf("%s/showbidDocument/%d", baseURL, bidIDParent)
-
-	req, err := http.NewRequest("GET", pdfURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/pdf,application/x-pdf,*/*")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("status %d", resp.StatusCode)
-	}
-
-	filename := fmt.Sprintf("GeM-Bidding-%d.pdf", bidIDParent)
-	destPath := filepath.Join(downloadDir, filename)
-
-	out, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		os.Remove(destPath)
-		return fmt.Errorf("write file: %w", err)
-	}
-
-	return nil
-}
-
-func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int, errLog *ErrorLog, onProgress ProgressFunc) error {
+// DownloadCorrigendumPDFs downloads corrigendum PDF documents.
+func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps int, maxRetries int, errLog *errlog.ErrorLog, onProgress models.ProgressFunc) error {
 	corrDir := filepath.Join(downloadDir, "corrigendums")
 	if err := os.MkdirAll(corrDir, 0755); err != nil {
 		return fmt.Errorf("create corrigendum dir: %w", err)
 	}
 
-	pending, err := GetPendingCorrigendumDownloads(db)
+	pending, err := store.GetPendingCorrigendumDownloads(db)
 	if err != nil {
 		return fmt.Errorf("get pending: %w", err)
 	}
@@ -172,12 +175,12 @@ func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps in
 		return nil
 	}
 
-	// Filter out already-downloaded files
-	var toDownload []CorrigendumDoc
+	// Filter out already-downloaded files (check file size > 0)
+	var toDownload []models.CorrigendumDoc
 	for _, doc := range pending {
 		destPath := filepath.Join(corrDir, fmt.Sprintf("Corrigendum-%d-%d.pdf", doc.CorrigendumID, doc.BidID))
-		if _, err := os.Stat(destPath); err == nil {
-			if markErr := MarkCorrigendumDownloaded(db, doc.ID); markErr != nil {
+		if info, err := os.Stat(destPath); err == nil && info.Size() > 0 {
+			if markErr := store.MarkCorrigendumDownloaded(db, doc.ID); markErr != nil {
 				log.Printf("[corrigendum-pdf] mark-downloaded error corr=%d bid=%d: %v", doc.CorrigendumID, doc.BidID, markErr)
 			}
 			continue
@@ -194,7 +197,7 @@ func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps in
 
 	limiter := rate.NewLimiter(rate.Limit(rps), rps*2)
 
-	jobs := make(chan CorrigendumDoc, len(toDownload))
+	jobs := make(chan models.CorrigendumDoc, len(toDownload))
 	for _, doc := range toDownload {
 		jobs <- doc
 	}
@@ -207,7 +210,7 @@ func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps in
 		total     = int64(len(toDownload))
 	)
 
-	for w := 0; w < workers; w++ {
+	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -216,17 +219,17 @@ func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps in
 			for doc := range jobs {
 				limiter.Wait(context.Background())
 
-				pdfURL := baseURL + doc.DownloadURL
+				pdfURL := session.BaseURL + doc.DownloadURL
 				destPath := filepath.Join(corrDir, fmt.Sprintf("Corrigendum-%d-%d.pdf", doc.CorrigendumID, doc.BidID))
 
-				err := downloadCorrigendumWithRetry(client, pdfURL, destPath, maxRetries)
+				err := downloadFile(client, pdfURL, destPath, maxRetries)
 				if err != nil {
 					errLog.Log("corrigendum-pdf-download", fmt.Sprintf("corr=%d bid=%d", doc.CorrigendumID, doc.BidID), err)
 					atomic.AddInt64(&failed, 1)
 					continue
 				}
 
-				if markErr := MarkCorrigendumDownloaded(db, doc.ID); markErr != nil {
+				if markErr := store.MarkCorrigendumDownloaded(db, doc.ID); markErr != nil {
 					errLog.Log("corrigendum-pdf-mark-downloaded", fmt.Sprintf("corr=%d bid=%d", doc.CorrigendumID, doc.BidID), markErr)
 				}
 				done := atomic.AddInt64(&completed, 1)
@@ -243,27 +246,14 @@ func DownloadCorrigendumPDFs(db *sql.DB, downloadDir string, workers int, rps in
 	return nil
 }
 
-func downloadCorrigendumWithRetry(client *http.Client, pdfURL string, destPath string, maxRetries int) error {
-	var lastErr error
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		lastErr = downloadFile(client, pdfURL, destPath)
-		if lastErr == nil {
-			return nil
-		}
-		if attempt < maxRetries {
-			time.Sleep(time.Duration(attempt) * 2 * time.Second)
-		}
-	}
-	return fmt.Errorf("failed after %d attempts url=%s: %w", maxRetries, pdfURL, lastErr)
-}
-
 // DownloadPDFsWithProgress wraps DownloadPDFs and DownloadCorrigendumPDFs with progress callbacks.
-// Uses reasonable defaults: 100 workers, 50 rps, 5 retries.
-func DownloadPDFsWithProgress(db *sql.DB, downloadDir string, errLog *ErrorLog, onProgress ProgressFunc) error {
+func DownloadPDFsWithProgress(db *sql.DB, downloadDir string, errLog *errlog.ErrorLog, onProgress models.ProgressFunc) error {
 	if onProgress != nil {
 		onProgress(0, 0, 0, "Starting bid PDF downloads...")
 	}
-	err := DownloadPDFs(db, downloadDir, 100, 50, 5, errLog, onProgress)
+
+	cfg := models.DefaultDownloadConfig
+	err := DownloadPDFs(db, downloadDir, cfg.Workers, cfg.RPS, cfg.MaxRetries, errLog, onProgress)
 	if err != nil {
 		if onProgress != nil {
 			onProgress(0, 0, 1, fmt.Sprintf("Bid PDF download error: %v", err))
@@ -274,7 +264,7 @@ func DownloadPDFsWithProgress(db *sql.DB, downloadDir string, errLog *ErrorLog, 
 		onProgress(0, 0, 0, "Bid PDF downloads completed, starting corrigendum PDF downloads...")
 	}
 
-	err = DownloadCorrigendumPDFs(db, downloadDir, 100, 50, 5, errLog, onProgress)
+	err = DownloadCorrigendumPDFs(db, downloadDir, cfg.Workers, cfg.RPS, cfg.MaxRetries, errLog, onProgress)
 	if err != nil {
 		if onProgress != nil {
 			onProgress(0, 0, 1, fmt.Sprintf("Corrigendum PDF download error: %v", err))
@@ -283,37 +273,6 @@ func DownloadPDFsWithProgress(db *sql.DB, downloadDir string, errLog *ErrorLog, 
 	}
 	if onProgress != nil {
 		onProgress(0, 0, 0, "All PDF downloads completed")
-	}
-	return nil
-}
-
-func downloadFile(client *http.Client, url string, destPath string) error {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/pdf,application/x-pdf,*/*")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("status %d", resp.StatusCode)
-	}
-
-	out, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-	defer out.Close()
-
-	if _, err = io.Copy(out, resp.Body); err != nil {
-		os.Remove(destPath)
-		return fmt.Errorf("write file: %w", err)
 	}
 	return nil
 }

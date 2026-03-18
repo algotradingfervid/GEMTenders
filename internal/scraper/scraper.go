@@ -1,12 +1,10 @@
-package main
+package scraper
 
 import (
-	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -16,12 +14,14 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"gemtenders/internal/models"
+	"gemtenders/internal/errlog"
+	"gemtenders/internal/session"
+	"gemtenders/internal/store"
 )
 
 const pageSize = 10 // Number of bid records per API page
-
-// ProgressFunc is a callback for reporting task progress to the ScrapeManager.
-type ProgressFunc func(current, total, errors int64, msg string)
 
 func DefaultPayload(page int) map[string]any {
 	payload := map[string]any{
@@ -46,7 +46,7 @@ func DefaultPayload(page int) map[string]any {
 // ScrapeBids launches `scrapers` parallel scraper instances, each offset by `staggerSec` seconds.
 // Each scraper independently scrapes all pages using its own workers and rate limiter.
 // The staggered snapshots catch records that shift between pages on the live API.
-func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, workersPerScraper int, rps int, errLog *ErrorLog, onProgress ProgressFunc) error {
+func ScrapeBids(pool *session.SessionPool, db *sql.DB, scrapers int, staggerSec int, workersPerScraper int, rps int, errLog *errlog.ErrorLog, onProgress models.ProgressFunc) error {
 	// First request to get total count
 	sp := pool.Next()
 	log.Println("Fetching page 1 to get total count...")
@@ -57,7 +57,7 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 	}
 
 	if len(apiResp.Response.Response.Docs) > 0 {
-		if _, err := InsertBidsBatch(db, apiResp.Response.Response.Docs); err != nil {
+		if _, err := store.InsertBidsBatch(db, apiResp.Response.Response.Docs); err != nil {
 			errLog.Log("scrape-insert", "page=1", err)
 		}
 	}
@@ -70,7 +70,7 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 
 	var wg sync.WaitGroup
 
-	for s := 0; s < scrapers; s++ {
+	for s := range scrapers {
 		if s > 0 {
 			log.Printf("Scraper %d starting in %ds...", s+1, staggerSec)
 			time.Sleep(time.Duration(staggerSec) * time.Second)
@@ -85,7 +85,7 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 
 	wg.Wait()
 
-	total, _, countErr := GetBidCount(db)
+	total, _, countErr := store.GetBidCount(db)
 	if countErr != nil {
 		log.Printf("[scraper] GetBidCount error: %v", countErr)
 	}
@@ -93,7 +93,7 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 	return nil
 }
 
-func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, workers int, rps int, errLog *ErrorLog, onProgress ProgressFunc) {
+func runScraper(scraperID int, pool *session.SessionPool, db *sql.DB, totalPages int, workers int, rps int, errLog *errlog.ErrorLog, onProgress models.ProgressFunc) {
 	log.Printf("[S%d] Starting: %d pages, %d workers, %d req/s", scraperID, totalPages, workers, rps)
 
 	limiter := rate.NewLimiter(rate.Limit(rps), rps*2)
@@ -109,7 +109,6 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 		scraped   int64
 		pagesDone int64
 		errors    int64
-		mu        sync.Mutex
 	)
 
 	startTime := time.Now()
@@ -145,7 +144,7 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 		}
 	}()
 
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
@@ -170,9 +169,7 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 
 				docs := resp.Response.Response.Docs
 				if len(docs) > 0 {
-					mu.Lock()
-					inserted, insertErr := InsertBidsBatch(db, docs)
-					mu.Unlock()
+					inserted, insertErr := store.InsertBidsBatch(db, docs)
 					if insertErr != nil {
 						errLog.Log("scrape-insert", fmt.Sprintf("page=%d", page), insertErr)
 					}
@@ -188,7 +185,7 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 	close(done)
 
 	elapsed := time.Since(startTime)
-	total, _, countErr := GetBidCount(db)
+	total, _, countErr := store.GetBidCount(db)
 	if countErr != nil {
 		log.Printf("[scraper] GetBidCount error: %v", countErr)
 	}
@@ -196,7 +193,7 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 		scraperID, elapsed.Round(time.Second), pagesDone, totalPages, scraped, errors, total)
 }
 
-func fetchPage(sp *SessionPair, page int) (*APIResponse, error) {
+func fetchPage(sp *session.SessionPair, page int) (*models.APIResponse, error) {
 	payload := DefaultPayload(page)
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
@@ -207,25 +204,18 @@ func fetchPage(sp *SessionPair, page int) (*APIResponse, error) {
 	formData.Set("payload", string(payloadJSON))
 	formData.Set("csrf_bd_gem_nk", sp.CSRFToken)
 
-	req, err := http.NewRequest("POST", baseURL+"/all-bids-data",
+	req, err := http.NewRequest("POST", session.BaseURL+"/all-bids-data",
 		strings.NewReader(formData.Encode()))
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9,hi;q=0.8")
+	session.SetAjaxHeaders(req)
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Connection", "keep-alive")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 	req.Header.Set("DNT", "1")
 	req.Header.Set("Host", "bidplus.gem.gov.in")
-	req.Header.Set("Origin", baseURL)
 	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Referer", baseURL+"/all-bids")
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 
 	resp, err := sp.Client.Do(req)
 	if err != nil {
@@ -233,26 +223,12 @@ func fetchPage(sp *SessionPair, page int) (*APIResponse, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("status %d", resp.StatusCode)
-	}
-
-	var reader io.Reader = resp.Body
-	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gzReader, err := gzip.NewReader(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("gzip reader: %w", err)
-		}
-		defer gzReader.Close()
-		reader = gzReader
-	}
-
-	body, err := io.ReadAll(reader)
+	body, err := session.ReadResponseBody(resp)
 	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return nil, err
 	}
 
-	var apiResp APIResponse
+	var apiResp models.APIResponse
 	if err := json.Unmarshal(body, &apiResp); err != nil {
 		return nil, fmt.Errorf("unmarshal: %w (body: %.200s)", err, string(body))
 	}
@@ -265,20 +241,9 @@ func fetchPage(sp *SessionPair, page int) (*APIResponse, error) {
 }
 
 // ScrapeBidsWithProgress wraps ScrapeBids with progress callbacks for the ScrapeManager.
-// Uses reasonable defaults: 5 scrapers, 30s stagger, 100 workers, 50 rps.
-func ScrapeBidsWithProgress(pool *SessionPool, db *sql.DB, errLog *ErrorLog, onProgress ProgressFunc) error {
-	if onProgress != nil {
-		onProgress(0, 0, 0, "Starting bid scrape...")
-	}
-	err := ScrapeBids(pool, db, 5, 30, 100, 50, errLog, onProgress)
-	if err != nil {
-		if onProgress != nil {
-			onProgress(0, 0, 1, fmt.Sprintf("Scrape error: %v", err))
-		}
-		return err
-	}
-	if onProgress != nil {
-		onProgress(0, 0, 0, "Bid scrape completed")
-	}
-	return nil
+func ScrapeBidsWithProgress(pool *session.SessionPool, db *sql.DB, errLog *errlog.ErrorLog, onProgress models.ProgressFunc) error {
+	return models.RunWithProgress("bid scrape", onProgress, func(p models.ProgressFunc) error {
+		cfg := models.DefaultScrapeConfig
+		return ScrapeBids(pool, db, cfg.Scrapers, cfg.StaggerSec, cfg.Workers, cfg.RPS, errLog, p)
+	})
 }

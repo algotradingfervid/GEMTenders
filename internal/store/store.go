@@ -1,4 +1,4 @@
-package main
+package store
 
 import (
 	"database/sql"
@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
+
+	"gemtenders/internal/models"
 )
 
 const createTableSQL = `
@@ -91,39 +93,7 @@ func InitDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-func InsertBid(db *sql.DB, doc BidDoc) error {
-	_, err := db.Exec(`
-		INSERT OR IGNORE INTO bids (
-			id, bid_id, bid_number, bid_number_parent, bid_id_parent,
-			category_name, total_quantity, status, bid_type, type,
-			is_bunch, bid_to_ra, start_date, end_date, is_high_value,
-			ministry_name, department_name, is_global_tender, is_rc_bid, is_custom_item
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		doc.ID,
-		firstInt(doc.BidID),
-		firstStr(doc.BidNumber),
-		firstStr(doc.BidNumberParent),
-		firstInt(doc.BidIDParent),
-		firstStr(doc.CategoryName),
-		firstInt(doc.TotalQuantity),
-		firstInt(doc.Status),
-		firstInt(doc.BidType),
-		firstInt(doc.Type),
-		firstInt(doc.IsBunch),
-		firstInt(doc.BidToRA),
-		firstStr(doc.StartDate),
-		firstStr(doc.EndDate),
-		boolToInt(firstBool(doc.IsHighValue)),
-		firstStr(doc.MinistryName),
-		firstStr(doc.DepartmentName),
-		firstInt(doc.IsGlobalTender),
-		firstInt(doc.IsRCBid),
-		firstInt(doc.IsCustomItem),
-	)
-	return err
-}
-
-func InsertBidsBatch(db *sql.DB, docs []BidDoc) (int, error) {
+func InsertBidsBatch(db *sql.DB, docs []models.BidDoc) (int, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return 0, err
@@ -146,25 +116,25 @@ func InsertBidsBatch(db *sql.DB, docs []BidDoc) (int, error) {
 	for _, doc := range docs {
 		res, err := stmt.Exec(
 			doc.ID,
-			firstInt(doc.BidID),
-			firstStr(doc.BidNumber),
-			firstStr(doc.BidNumberParent),
-			firstInt(doc.BidIDParent),
-			firstStr(doc.CategoryName),
-			firstInt(doc.TotalQuantity),
-			firstInt(doc.Status),
-			firstInt(doc.BidType),
-			firstInt(doc.Type),
-			firstInt(doc.IsBunch),
-			firstInt(doc.BidToRA),
-			firstStr(doc.StartDate),
-			firstStr(doc.EndDate),
-			boolToInt(firstBool(doc.IsHighValue)),
-			firstStr(doc.MinistryName),
-			firstStr(doc.DepartmentName),
-			firstInt(doc.IsGlobalTender),
-			firstInt(doc.IsRCBid),
-			firstInt(doc.IsCustomItem),
+			models.FirstInt(doc.BidID),
+			models.FirstStr(doc.BidNumber),
+			models.FirstStr(doc.BidNumberParent),
+			models.FirstInt(doc.BidIDParent),
+			models.FirstStr(doc.CategoryName),
+			models.FirstInt(doc.TotalQuantity),
+			models.FirstInt(doc.Status),
+			models.FirstInt(doc.BidType),
+			models.FirstInt(doc.Type),
+			models.FirstInt(doc.IsBunch),
+			models.FirstInt(doc.BidToRA),
+			models.FirstStr(doc.StartDate),
+			models.FirstStr(doc.EndDate),
+			models.BoolToInt(models.FirstBool(doc.IsHighValue)),
+			models.FirstStr(doc.MinistryName),
+			models.FirstStr(doc.DepartmentName),
+			models.FirstInt(doc.IsGlobalTender),
+			models.FirstInt(doc.IsRCBid),
+			models.FirstInt(doc.IsCustomItem),
 		)
 		if err != nil {
 			log.Printf("insert error for id=%s: %v", doc.ID, err)
@@ -223,13 +193,6 @@ func GetBidCount(db *sql.DB) (total int, downloaded int, err error) {
 	return
 }
 
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 func InitFTS(db *sql.DB) error {
 	_, err := db.Exec(`
 		CREATE VIRTUAL TABLE IF NOT EXISTS bids_fts USING fts5(
@@ -258,30 +221,10 @@ func RebuildFTS(db *sql.DB) error {
 	return nil
 }
 
-type BidResult struct {
-	ID                string
-	BidID             int
-	BidNumber         string
-	BidNumberParent   string
-	BidIDParent       int
-	CategoryName      string
-	TotalQuantity     int
-	StartDate         string
-	EndDate           string
-	IsHighValue       int
-	MinistryName      string
-	DepartmentName    string
-	HasCorrigendum    int
-	HasRepresentation int
-}
-
-func GetBidByID(db *sql.DB, id string) (*BidResult, error) {
-	var r BidResult
+func GetBidByID(db *sql.DB, id string) (*models.BidResult, error) {
+	var r models.BidResult
 	err := db.QueryRow(`
-		SELECT b.id, b.bid_id, b.bid_number, b.bid_number_parent, b.bid_id_parent,
-		       b.category_name, b.total_quantity, b.start_date, b.end_date,
-		       b.is_high_value, b.ministry_name, b.department_name,
-		       COALESCE(bod.has_corrigendum, 0), COALESCE(bod.has_representation, 0)
+		SELECT `+models.BidSelectCols+`
 		FROM bids b
 		LEFT JOIN bid_other_details bod ON bod.bid_id = b.bid_id
 		WHERE b.id = ?
@@ -296,7 +239,7 @@ func GetBidByID(db *sql.DB, id string) (*BidResult, error) {
 	return &r, nil
 }
 
-func SearchBids(db *sql.DB, query string, limit int, offset int) ([]BidResult, int, error) {
+func SearchBids(db *sql.DB, query string, limit int, offset int) ([]models.BidResult, int, error) {
 	if query == "" {
 		return recentBids(db, limit, offset)
 	}
@@ -308,10 +251,7 @@ func SearchBids(db *sql.DB, query string, limit int, offset int) ([]BidResult, i
 	}
 
 	rows, err := db.Query(`
-		SELECT b.id, b.bid_id, b.bid_number, b.bid_number_parent, b.bid_id_parent,
-		       b.category_name, b.total_quantity, b.start_date, b.end_date,
-		       b.is_high_value, b.ministry_name, b.department_name,
-		       COALESCE(bod.has_corrigendum, 0), COALESCE(bod.has_representation, 0)
+		SELECT `+models.BidSelectCols+`
 		FROM bids_fts f
 		JOIN bids b ON f.rowid = b.rowid
 		LEFT JOIN bid_other_details bod ON bod.bid_id = b.bid_id
@@ -327,15 +267,7 @@ func SearchBids(db *sql.DB, query string, limit int, offset int) ([]BidResult, i
 	return scanBidResults(rows, total)
 }
 
-type SearchFilters struct {
-	Query       string
-	Departments []string
-	Categories  []string
-	StartDate   string // YYYY-MM-DD
-	EndDate     string // YYYY-MM-DD
-}
-
-func SearchBidsFiltered(db *sql.DB, filters SearchFilters, limit, offset int) ([]BidResult, int, error) {
+func SearchBidsFiltered(db *sql.DB, filters models.SearchFilters, limit, offset int) ([]models.BidResult, int, error) {
 	var (
 		fromClause  string
 		conditions  []string
@@ -397,12 +329,7 @@ func SearchBidsFiltered(db *sql.DB, filters SearchFilters, limit, offset int) ([
 	}
 
 	// Fetch results
-	selectCols := `b.id, b.bid_id, b.bid_number, b.bid_number_parent, b.bid_id_parent,
-		       b.category_name, b.total_quantity, b.start_date, b.end_date,
-		       b.is_high_value, b.ministry_name, b.department_name,
-		       COALESCE(bod.has_corrigendum, 0), COALESCE(bod.has_representation, 0)`
-
-	querySQL := "SELECT " + selectCols + " " + fromClause + " " + whereClause + " " + orderClause + " LIMIT ? OFFSET ?"
+	querySQL := "SELECT " + models.BidSelectCols + " " + fromClause + " " + whereClause + " " + orderClause + " LIMIT ? OFFSET ?"
 	queryArgs := append(args, limit, offset)
 
 	rows, err := db.Query(querySQL, queryArgs...)
@@ -414,15 +341,12 @@ func SearchBidsFiltered(db *sql.DB, filters SearchFilters, limit, offset int) ([
 	return scanBidResults(rows, total)
 }
 
-func recentBids(db *sql.DB, limit int, offset int) ([]BidResult, int, error) {
+func recentBids(db *sql.DB, limit int, offset int) ([]models.BidResult, int, error) {
 	var total int
 	db.QueryRow("SELECT COUNT(*) FROM bids").Scan(&total)
 
 	rows, err := db.Query(`
-		SELECT b.id, b.bid_id, b.bid_number, b.bid_number_parent, b.bid_id_parent,
-		       b.category_name, b.total_quantity, b.start_date, b.end_date,
-		       b.is_high_value, b.ministry_name, b.department_name,
-		       COALESCE(bod.has_corrigendum, 0), COALESCE(bod.has_representation, 0)
+		SELECT `+models.BidSelectCols+`
 		FROM bids b
 		LEFT JOIN bid_other_details bod ON bod.bid_id = b.bid_id
 		ORDER BY b.end_date DESC LIMIT ? OFFSET ?
@@ -435,10 +359,10 @@ func recentBids(db *sql.DB, limit int, offset int) ([]BidResult, int, error) {
 	return scanBidResults(rows, total)
 }
 
-func scanBidResults(rows *sql.Rows, total int) ([]BidResult, int, error) {
-	var results []BidResult
+func scanBidResults(rows *sql.Rows, total int) ([]models.BidResult, int, error) {
+	var results []models.BidResult
 	for rows.Next() {
-		var r BidResult
+		var r models.BidResult
 		err := rows.Scan(&r.ID, &r.BidID, &r.BidNumber, &r.BidNumberParent,
 			&r.BidIDParent, &r.CategoryName, &r.TotalQuantity,
 			&r.StartDate, &r.EndDate, &r.IsHighValue,
@@ -473,8 +397,8 @@ func GetActiveBidIDs(db *sql.DB) ([]int, error) {
 	return ids, rows.Err()
 }
 
-func GetBidOtherDetails(db *sql.DB, bidID int) (*BidOtherDetails, error) {
-	var d BidOtherDetails
+func GetBidOtherDetails(db *sql.DB, bidID int) (*models.BidOtherDetails, error) {
+	var d models.BidOtherDetails
 	err := db.QueryRow(`
 		SELECT bid_id, has_corrigendum, has_representation,
 		       corrigendum_html, representation_html,
@@ -489,7 +413,7 @@ func GetBidOtherDetails(db *sql.DB, bidID int) (*BidOtherDetails, error) {
 	return &d, nil
 }
 
-func UpsertBidOtherDetails(db *sql.DB, d BidOtherDetails) error {
+func UpsertBidOtherDetails(db *sql.DB, d models.BidOtherDetails) error {
 	_, err := db.Exec(`
 		INSERT INTO bid_other_details (
 			bid_id, has_corrigendum, has_representation,
@@ -510,7 +434,7 @@ func UpsertBidOtherDetails(db *sql.DB, d BidOtherDetails) error {
 	return err
 }
 
-func InsertCorrigendumDoc(db *sql.DB, doc CorrigendumDoc) error {
+func InsertCorrigendumDoc(db *sql.DB, doc models.CorrigendumDoc) error {
 	_, err := db.Exec(`
 		INSERT OR IGNORE INTO corrigendum_documents (
 			bid_id, corrigendum_id, download_url, modified_on
@@ -519,7 +443,7 @@ func InsertCorrigendumDoc(db *sql.DB, doc CorrigendumDoc) error {
 	return err
 }
 
-func GetPendingCorrigendumDownloads(db *sql.DB) ([]CorrigendumDoc, error) {
+func GetPendingCorrigendumDownloads(db *sql.DB) ([]models.CorrigendumDoc, error) {
 	rows, err := db.Query(`
 		SELECT id, bid_id, corrigendum_id, download_url, modified_on
 		FROM corrigendum_documents WHERE downloaded = 0`)
@@ -528,9 +452,9 @@ func GetPendingCorrigendumDownloads(db *sql.DB) ([]CorrigendumDoc, error) {
 	}
 	defer rows.Close()
 
-	var docs []CorrigendumDoc
+	var docs []models.CorrigendumDoc
 	for rows.Next() {
-		var d CorrigendumDoc
+		var d models.CorrigendumDoc
 		if err := rows.Scan(&d.ID, &d.BidID, &d.CorrigendumID, &d.DownloadURL, &d.ModifiedOn); err != nil {
 			return nil, err
 		}
@@ -567,16 +491,14 @@ func GetCorrigendumStats(db *sql.DB) (checked int, withCorr int, docsTotal int, 
 	if err = db.QueryRow("SELECT COUNT(*) FROM bid_other_details WHERE has_corrigendum = 1").Scan(&withCorr); err != nil {
 		return 0, 0, 0, 0, fmt.Errorf("count corrigendums: %w", err)
 	}
-	if err = db.QueryRow("SELECT COUNT(*) FROM corrigendum_documents").Scan(&docsTotal); err != nil {
+	err = db.QueryRow("SELECT COUNT(*), SUM(CASE WHEN downloaded=1 THEN 1 ELSE 0 END) FROM corrigendum_documents").Scan(&docsTotal, &docsDownloaded)
+	if err != nil {
 		return 0, 0, 0, 0, fmt.Errorf("count corrigendum_documents: %w", err)
-	}
-	if err = db.QueryRow("SELECT COUNT(*) FROM corrigendum_documents WHERE downloaded = 1").Scan(&docsDownloaded); err != nil {
-		return 0, 0, 0, 0, fmt.Errorf("count downloaded: %w", err)
 	}
 	return
 }
 
-func GetCorrigendumDocsForBid(db *sql.DB, bidID int) ([]CorrigendumDoc, error) {
+func GetCorrigendumDocsForBid(db *sql.DB, bidID int) ([]models.CorrigendumDoc, error) {
 	rows, err := db.Query(`
 		SELECT id, bid_id, corrigendum_id, download_url, modified_on, downloaded
 		FROM corrigendum_documents WHERE bid_id = ? ORDER BY modified_on DESC`, bidID)
@@ -585,9 +507,9 @@ func GetCorrigendumDocsForBid(db *sql.DB, bidID int) ([]CorrigendumDoc, error) {
 	}
 	defer rows.Close()
 
-	var docs []CorrigendumDoc
+	var docs []models.CorrigendumDoc
 	for rows.Next() {
-		var d CorrigendumDoc
+		var d models.CorrigendumDoc
 		if err := rows.Scan(&d.ID, &d.BidID, &d.CorrigendumID, &d.DownloadURL, &d.ModifiedOn, &d.Downloaded); err != nil {
 			return nil, err
 		}

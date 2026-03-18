@@ -1,7 +1,8 @@
 # Database
-gems.db
-gems.db-shm
-gems.db-wal
+data/
+*.db
+*.db-shm
+*.db-wal
 
 # Downloads
 downloads/
@@ -18,6 +19,7 @@ node_modules/
 .DS_Store
 
 # Logs
+logs/
 *.log
 
 # Test output
