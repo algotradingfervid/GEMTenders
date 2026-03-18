@@ -39,11 +39,11 @@
         <div>
             <div class="mb-2">
                 <span class="text-xs text-slate-400 uppercase tracking-wide">Start Date</span>
-                <div class="text-sm text-emerald-600">{{ .StartDate }}</div>
+                <div class="text-sm text-emerald-600">{{ .StartDate | formatDate }}</div>
             </div>
             <div>
                 <span class="text-xs text-slate-400 uppercase tracking-wide">End Date</span>
-                <div class="text-sm text-red-500">{{ .EndDate }}</div>
+                <div class="text-sm text-red-500">{{ .EndDate | formatDate }}</div>
             </div>
         </div>
     </div>

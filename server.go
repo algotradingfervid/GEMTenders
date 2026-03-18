@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,6 +23,19 @@ func StartServer(db *sql.DB, downloadDir string, addr string, sm *ScrapeManager,
 	r := gin.Default()
 	r.SetFuncMap(template.FuncMap{
 		"safeHTML": func(s string) template.HTML { return template.HTML(s) },
+		"formatDate": func(s string) string {
+			formats := []string{
+				"2006-01-02T15:04:05Z",
+				"2006-01-02T15:04:05",
+				"2006-01-02 15:04:05",
+			}
+			for _, f := range formats {
+				if t, err := time.Parse(f, s); err == nil {
+					return t.Format("02 Jan 2006, 3:04 PM")
+				}
+			}
+			return s
+		},
 	})
 	r.LoadHTMLGlob("web/templates/*")
 	r.Static("/static", "web/static")

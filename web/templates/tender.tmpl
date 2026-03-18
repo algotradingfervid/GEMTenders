@@ -58,11 +58,11 @@
                 </div>
                 <div>
                     <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Start Date</div>
-                    <div class="text-sm text-emerald-600 mt-1">{{ .Bid.StartDate }}</div>
+                    <div class="text-sm text-emerald-600 mt-1">{{ .Bid.StartDate | formatDate }}</div>
                 </div>
                 <div>
                     <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold">End Date</div>
-                    <div class="text-sm text-red-500 mt-1">{{ .Bid.EndDate }}</div>
+                    <div class="text-sm text-red-500 mt-1">{{ .Bid.EndDate | formatDate }}</div>
                 </div>
                 {{ if .Bid.BidNumberParent }}
                 <div>
