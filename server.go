@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func StartServer(db *sql.DB, downloadDir string, addr string) {
+func StartServer(db *sql.DB, downloadDir string, addr string, sm *ScrapeManager, dbPath string, sessionCount int) {
 	// Init FTS
 	if err := InitFTS(db); err != nil {
 		log.Fatalf("Failed to init FTS: %v", err)
@@ -69,6 +69,25 @@ func StartServer(db *sql.DB, downloadDir string, addr string) {
 			fmt.Sprintf("Corrigendum-%s-%s.pdf", corrID, bidID))
 		c.File(filePath)
 	})
+
+	// Dashboard
+	r.GET("/dashboard", DashboardPage)
+
+	// Stats API
+	r.GET("/api/stats/summary", SummaryHandler(db))
+	r.GET("/api/stats/pipeline", PipelineHandler(db))
+	r.GET("/api/stats/departments", DepartmentsBreakdownHandler(db))
+	r.GET("/api/stats/categories", CategoriesBreakdownHandler(db))
+	r.GET("/api/stats/timeline", TimelineHandler(db))
+
+	// Scrape control API
+	r.POST("/api/scrape/start", ScrapeStartHandler(sm, dbPath, sessionCount))
+	r.GET("/api/scrape/status", ScrapeStatusHandler(sm))
+	r.GET("/api/scrape/progress", ScrapeProgressSSEHandler(sm))
+
+	// Typeahead API
+	r.GET("/api/departments", DepartmentTypeaheadHandler(db))
+	r.GET("/api/categories", CategoryTypeaheadHandler(db))
 
 	log.Printf("Starting server on %s", addr)
 	r.Run(addr)
