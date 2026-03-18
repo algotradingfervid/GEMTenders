@@ -73,9 +73,14 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("create table: %w", err)
 	}
 	// Migration: add end_date_original column if missing
-	db.Exec("ALTER TABLE bids ADD COLUMN end_date_original TEXT DEFAULT ''")
+	if _, err := db.Exec("ALTER TABLE bids ADD COLUMN end_date_original TEXT DEFAULT ''"); err != nil {
+		// Column already exists — expected on subsequent runs
+		log.Printf("[db] migration end_date_original: %v (likely already exists)", err)
+	}
 	// Backfill: set end_date_original = end_date where not yet set
-	db.Exec("UPDATE bids SET end_date_original = end_date WHERE end_date_original = '' AND end_date != ''")
+	if _, err := db.Exec("UPDATE bids SET end_date_original = end_date WHERE end_date_original = '' AND end_date != ''"); err != nil {
+		log.Printf("[db] backfill end_date_original: %v", err)
+	}
 
 	// Indexes for dashboard stats and filtered search
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_department_name ON bids(department_name)")
@@ -218,15 +223,6 @@ func GetBidCount(db *sql.DB) (total int, downloaded int, err error) {
 	return
 }
 
-func GetLastScrapedPage(db *sql.DB) int {
-	var count int
-	db.QueryRow("SELECT COUNT(*) FROM bids").Scan(&count)
-	if count == 0 {
-		return 0
-	}
-	return count / 10 // 10 records per page
-}
-
 func boolToInt(b bool) int {
 	if b {
 		return 1
@@ -343,7 +339,7 @@ func SearchBidsFiltered(db *sql.DB, filters SearchFilters, limit, offset int) ([
 	var (
 		fromClause  string
 		conditions  []string
-		args        []interface{}
+		args        []any
 		orderClause string
 	)
 

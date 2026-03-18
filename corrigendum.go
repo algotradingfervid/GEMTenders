@@ -241,7 +241,7 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int, err
 	// Progress reporter goroutine
 	done := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {

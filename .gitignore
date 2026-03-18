@@ -21,9 +21,8 @@ node_modules/
 *.log
 
 # Test output
-gem_test_listings.csv
-gem_test_results.csv
-gem_test_results.json
+gem_test_*.csv
+gem_test_*.json
 
 # Screenshots
 Screenshot*.png

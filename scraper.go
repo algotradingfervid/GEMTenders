@@ -18,16 +18,18 @@ import (
 	"golang.org/x/time/rate"
 )
 
+const pageSize = 10 // Number of bid records per API page
+
 // ProgressFunc is a callback for reporting task progress to the ScrapeManager.
 type ProgressFunc func(current, total, errors int64, msg string)
 
-func DefaultPayload(page int) map[string]interface{} {
-	payload := map[string]interface{}{
-		"param": map[string]interface{}{
+func DefaultPayload(page int) map[string]any {
+	payload := map[string]any{
+		"param": map[string]any{
 			"searchBid":  "",
 			"searchType": "fullText",
 		},
-		"filter": map[string]interface{}{
+		"filter": map[string]any{
 			"bidStatusType": "ongoing_bids",
 			"byType":        "all",
 			"highBidValue":  "",
@@ -61,7 +63,7 @@ func ScrapeBids(pool *SessionPool, db *sql.DB, scrapers int, staggerSec int, wor
 	}
 
 	totalFound := apiResp.Response.Response.NumFound
-	totalPages := (totalFound + 9) / 10
+	totalPages := (totalFound + pageSize - 1) / pageSize
 	log.Printf("Total records: %d, Total pages: %d", totalFound, totalPages)
 	log.Printf("Launching %d parallel scrapers (stagger: %ds, workers/scraper: %d, rate: %d req/s each)",
 		scrapers, staggerSec, workersPerScraper, rps)

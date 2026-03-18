@@ -1,13 +1,12 @@
 package main
 
 import (
-	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestInitDB(t *testing.T) {
-	dbPath := "/tmp/test_gem.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_gem.db")
 
 	db, err := InitDB(dbPath)
 	if err != nil {
@@ -27,8 +26,7 @@ func TestInitDB(t *testing.T) {
 }
 
 func TestInsertAndQuery(t *testing.T) {
-	dbPath := "/tmp/test_gem2.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_gem2.db")
 
 	db, err := InitDB(dbPath)
 	if err != nil {
@@ -87,8 +85,7 @@ func TestInsertAndQuery(t *testing.T) {
 }
 
 func TestCorrigendumTablesExist(t *testing.T) {
-	dbPath := "/tmp/test_gem_corr.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_gem_corr.db")
 
 	db, err := InitDB(dbPath)
 	if err != nil {
@@ -117,8 +114,7 @@ func TestCorrigendumTablesExist(t *testing.T) {
 }
 
 func TestUpsertBidOtherDetails(t *testing.T) {
-	dbPath := "/tmp/test_gem_upsert.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_gem_upsert.db")
 
 	db, err := InitDB(dbPath)
 	if err != nil {
@@ -175,8 +171,7 @@ func TestUpsertBidOtherDetails(t *testing.T) {
 }
 
 func TestInsertCorrigendumDoc(t *testing.T) {
-	dbPath := "/tmp/test_gem_corrdoc.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_gem_corrdoc.db")
 
 	db, err := InitDB(dbPath)
 	if err != nil {
@@ -215,8 +210,7 @@ func TestInsertCorrigendumDoc(t *testing.T) {
 }
 
 func TestGetActiveBidIDs(t *testing.T) {
-	dbPath := "/tmp/test_gem_active.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_gem_active.db")
 
 	db, err := InitDB(dbPath)
 	if err != nil {
@@ -246,8 +240,7 @@ func TestGetActiveBidIDs(t *testing.T) {
 }
 
 func TestUpdateBidEndDate(t *testing.T) {
-	dbPath := "/tmp/test_gem_enddate.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_gem_enddate.db")
 
 	db, err := InitDB(dbPath)
 	if err != nil {
@@ -281,8 +274,7 @@ func TestUpdateBidEndDate(t *testing.T) {
 }
 
 func TestCorrigendumEndToEnd(t *testing.T) {
-	dbPath := "/tmp/test_gem_e2e_corr.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_gem_e2e_corr.db")
 
 	db, err := InitDB(dbPath)
 	if err != nil {
@@ -353,8 +345,7 @@ func TestCorrigendumEndToEnd(t *testing.T) {
 }
 
 func TestInsertBatchAndDuplicates(t *testing.T) {
-	dbPath := "/tmp/test_gem3.db"
-	defer os.Remove(dbPath)
+	dbPath := filepath.Join(t.TempDir(), "test_gem3.db")
 
 	db, err := InitDB(dbPath)
 	if err != nil {
