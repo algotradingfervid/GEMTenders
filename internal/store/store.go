@@ -285,7 +285,7 @@ func SearchBidsFiltered(db *sql.DB, filters models.SearchFilters, limit, offset 
 	} else {
 		fromClause = `FROM bids b
 		LEFT JOIN bid_other_details bod ON bod.bid_id = b.bid_id`
-		orderClause = "ORDER BY b.end_date DESC"
+		orderClause = "ORDER BY b.end_date ASC"
 	}
 
 	if len(filters.Departments) > 0 {
@@ -343,13 +343,14 @@ func SearchBidsFiltered(db *sql.DB, filters models.SearchFilters, limit, offset 
 
 func recentBids(db *sql.DB, limit int, offset int) ([]models.BidResult, int, error) {
 	var total int
-	db.QueryRow("SELECT COUNT(*) FROM bids").Scan(&total)
+	db.QueryRow("SELECT COUNT(*) FROM bids WHERE end_date > datetime('now')").Scan(&total)
 
 	rows, err := db.Query(`
 		SELECT `+models.BidSelectCols+`
 		FROM bids b
 		LEFT JOIN bid_other_details bod ON bod.bid_id = b.bid_id
-		ORDER BY b.end_date DESC LIMIT ? OFFSET ?
+		WHERE b.end_date > datetime('now')
+		ORDER BY b.end_date ASC LIMIT ? OFFSET ?
 	`, limit, offset)
 	if err != nil {
 		return nil, 0, err

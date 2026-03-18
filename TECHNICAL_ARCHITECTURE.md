@@ -1,100 +1,6 @@
-# GEMTenders
+# GEMTenders - Technical Architecture
 
-A high-performance tender discovery platform for India's **Government e-Marketplace (GeM)**. Scrapes, indexes, and serves 42,000+ active bids with full-text search, PDF management, and a real-time analytics dashboard.
-
----
-
-## Project Summary
-
-### What Is This Project?
-
-GEMTenders is a **tender discovery and analytics platform** built for India's Government e-Marketplace (GeM). It automatically finds, collects, organizes, and presents government tender data so users can search, track, and analyze procurement opportunities in one place.
-
-India's GeM portal hosts over 42,000 active tenders at any given time. Navigating that portal directly is slow and limited. GEMTenders solves this by pulling all that data into a fast, searchable system with rich analytics.
-
-### Who Is It For?
-
-- **Government procurement officers** who need to monitor the tender pipeline in their ministry or department
-- **Vendors and contractors** looking for relevant tender opportunities to bid on
-- **Bid analysts** tracking amendments, deadlines, and high-value opportunities
-- **Anyone** who needs faster, deeper access to GeM tender data than the official portal provides
-
-### What Does It Do?
-
-The system handles the full lifecycle of tender data, from collection to presentation:
-
-#### 1. Data Collection (Scraping)
-
-The system automatically visits the GeM portal and collects information about all active tenders. It does this using multiple parallel scrapers that work simultaneously to gather data quickly and reliably. The scraping process:
-
-- Fetches all active bid listings from the GeM portal
-- Extracts key details: bid numbers, categories, ministries, departments, dates, quantities, and more
-- Detects whether tenders have been amended (corrigendums) and captures those changes
-- Downloads the full PDF documents for each tender
-- Runs on a schedule (every 6 hours) to keep data current
-
-#### 2. Data Storage
-
-All collected tender data is stored in a local database. This includes:
-
-- **Core bid information** - bid numbers, categories, ministry/department, start and end dates, quantities, high-value flags
-- **Amendments** - any changes or extensions to tenders (corrigendums), including updated deadlines
-- **Documents** - the actual PDF files for bids and their amendments
-- **Search index** - a specially optimized index that enables fast full-text search across all tenders
-
-#### 3. Search & Browse
-
-The main interface lets users find tenders quickly:
-
-- **Real-time search** - type to search across bid numbers, categories, ministries, and departments with results appearing instantly
-- **Advanced filters** - narrow results by department, category, or date range using intuitive dropdown selectors
-- **Result cards** - each tender shows its key details at a glance, with badges indicating high-value bids or amendments
-- **Tender detail pages** - click any tender to see its full information, amendment history, and embedded PDF viewer
-
-#### 4. Analytics Dashboard
-
-A visual dashboard provides insights into the tender landscape:
-
-- **Overview statistics** - total bids, PDFs downloaded, amendment counts, last scrape time
-- **Tender pipeline** - charts showing active, expiring soon (24h/48h/7 days), and expired tenders
-- **Top departments** - which government departments are issuing the most bids
-- **Top categories** - which procurement categories are most active
-- **30-day timeline** - a chart showing the daily flow of new tenders arriving over the past month
-- **Scrape controls** - buttons to manually trigger data collection, PDF downloads, or amendment checks
-
-#### 5. Document Access
-
-- Full bid PDFs are downloaded and stored locally for offline access
-- Amendment (corrigendum) PDFs are also tracked and downloadable
-- Documents are viewable directly in the browser via an embedded PDF viewer
-
-### How It Works Day-to-Day
-
-Once deployed, the system runs largely on autopilot:
-
-1. **Every 6 hours**, the scraper automatically visits GeM and collects the latest tender data
-2. **Shortly after**, PDF documents for any new tenders are downloaded
-3. **Users visit the web interface** to search for tenders, review documents, and check the analytics dashboard
-4. **The dashboard** shows live progress when a scrape is running, including how many tenders have been processed and any errors encountered
-
-### Key Features at a Glance
-
-| Feature | Description |
-|---|---|
-| **Automated collection** | Gathers 42,000+ tenders every 6 hours without manual intervention |
-| **Fast search** | Full-text search with relevance ranking across all tender fields |
-| **Smart filters** | Filter by department, category, and date ranges |
-| **Amendment tracking** | Detects and records changes to tenders, including deadline extensions |
-| **PDF library** | Downloads and serves all bid documents for offline access |
-| **Visual analytics** | Charts and statistics for tender pipeline analysis |
-| **Live progress** | Real-time status updates when data collection is running |
-| **Single deployment** | Runs as a single application with minimal infrastructure needs |
-
----
-
-## Technical Architecture
-
-### System Overview
+## System Overview
 
 GEMTenders is a Go monolith that scrapes, stores, indexes, and serves government tender data from India's GeM portal. It ships as a single binary with an embedded web server, SQLite database, and headless browser integration.
 
@@ -124,50 +30,69 @@ GEMTenders is a Go monolith that scrapes, stores, indexes, and serves government
  └────────────────────────────────────────┘
 ```
 
-### Tech Stack
+---
 
-| Component | Technology |
-|-----------|-----------|
-| Language | Go 1.25 |
-| Web Framework | Gin |
-| Database | SQLite3 (FTS5, WAL mode) |
-| Browser Automation | Playwright (Chromium, headless) |
-| Frontend | Tailwind CSS, HTMX 2.0, Chart.js |
-
-### Project Structure
+## Project Structure
 
 ```
-├── cmd/gemscraper/
-│   └── main.go              # CLI entry point and command router
-├── internal/
-│   ├── models/models.go     # All types, configs, constants, helpers
-│   ├── session/session.go   # Session pool, bootstrap, Playwright, HTTP transport
-│   ├── store/
-│   │   ├── store.go         # SQLite schema, migrations, CRUD operations
-│   │   └── stats.go         # Dashboard statistics queries (consolidated)
-│   ├── scraper/
-│   │   ├── scraper.go       # Parallel bid scraping engine
-│   │   └── corrigendum.go   # Corrigendum parsing and tracking
-│   ├── downloader/
-│   │   └── downloader.go    # PDF download with unified retry logic
-│   ├── worker/worker.go     # Generic worker pool with rate limiting
-│   ├── manager/manager.go   # Background scrape orchestration + SSE
-│   ├── server/
-│   │   ├── server.go        # Gin routes and template setup
-│   │   └── handlers.go      # HTTP handlers (search, dashboard, scrape control)
-│   └── errlog/errlog.go     # Timestamped error logging
-├── data/                    # SQLite database (gitignored)
-├── logs/                    # Error logs (gitignored)
-├── downloads/               # PDF documents (gitignored)
-├── web/
-│   ├── templates/           # Go HTML templates (index, results, tender, dashboard)
-│   └── static/              # CSS and JS (Tailwind, chip-select)
-└── docs/
-    ├── deployment.md        # Detailed deployment guide
-    └── scraping-process.md  # Scraping architecture deep dive
+cmd/gemscraper/main.go            CLI entry point, command router
+internal/
+  models/models.go                Types, configs, API schemas, helpers
+  session/session.go              Playwright/HTTP session management
+  store/
+    store.go                      SQLite schema, migrations, CRUD
+    stats.go                      Dashboard statistics queries
+  scraper/
+    scraper.go                    Parallel bid scraping engine
+    corrigendum.go                Amendment detection & parsing
+  downloader/downloader.go        PDF download pipeline
+  worker/worker.go                Generic rate-limited worker pool
+  manager/manager.go              Background orchestration + SSE broadcast
+  server/
+    server.go                     Gin routing, template setup
+    handlers.go                   HTTP handlers
+  errlog/errlog.go                Timestamped error logging
+web/
+  templates/                      Go HTML templates (index, results, tender, dashboard)
+  static/                         Tailwind CSS, HTMX, Chart.js, chip-select.js
+data/                             SQLite database
+downloads/                        Bid and corrigendum PDFs
+logs/                             Error logs
 ```
 
-### Session Management & WAF Bypass
+---
+
+## CLI Commands & Configuration
+
+```bash
+gemscraper scrape     # Fetch all active bids from GeM
+  -db        data/gems.db
+  -sessions  3           # Playwright browser sessions
+  -scrapers  5           # Parallel scraper instances
+  -stagger   30          # Seconds between scraper launches
+  -workers   100         # Workers per scraper
+  -rps       50          # Requests/second per scraper
+
+gemscraper download   # Download bid and corrigendum PDFs
+  -db        data/gems.db
+  -dir       downloads
+  -workers   100
+  -rps       50
+  -retries   5
+
+gemscraper serve      # Start web server
+  -db        data/gems.db
+  -downloads downloads
+  -addr      :28080
+  -sessions  3           # For web-triggered scrapes
+
+gemscraper reindex    # Rebuild full-text search index
+gemscraper status     # Show scraping/download progress
+```
+
+---
+
+## Session Management & WAF Bypass
 
 The GeM portal uses a Web Application Firewall. The system bypasses it with a two-tier approach:
 
@@ -195,9 +120,11 @@ type SessionPool struct {
 }
 ```
 
-### Scraping Architecture
+---
 
-#### Parallel Scraper Design
+## Scraping Architecture
+
+### Parallel Scraper Design
 
 ```
 5 staggered scrapers (launched 30s apart)
@@ -221,18 +148,20 @@ type SessionPool struct {
 
 **Retry:** 2 attempts per page with 3-second backoff and session rotation on failure.
 
-#### API Interaction
+### API Interaction
 
 - **Endpoint:** `POST https://bidplus.gem.gov.in/all-bids-data`
 - **Page size:** 10 records per page
 - **Response format:** Solr-style JSON with array fields (e.g., `b_id: [123]`)
 - **Flattened** during insert using `FirstStr()`, `FirstInt()` helpers
 
-#### Progress Reporting
+### Progress Reporting
 
 A background goroutine reports every 3 seconds using atomic counters (no mutex contention). Reports pages done, bids inserted, errors, and calculated ETA.
 
-### Corrigendum Detection & Processing
+---
+
+## Corrigendum Detection & Processing
 
 ```
 For each active bid (end_date > now):
@@ -260,7 +189,9 @@ For each active bid (end_date > now):
 - `Bid extended to\s*<strong>([\d\- :]+)</strong>` — Extended deadlines
 - `<div class="well">` — Corrigendum count
 
-### PDF Download Pipeline
+---
+
+## PDF Download Pipeline
 
 ```
 GetPendingDownloads (pdf_downloaded = 0)
@@ -277,15 +208,17 @@ GetPendingDownloads (pdf_downloaded = 0)
 
 On success, marks `pdf_downloaded = 1` in the database.
 
-### Database Layer
+---
 
-#### SQLite Configuration
+## Database Layer
+
+### SQLite Configuration
 
 - **WAL mode** (Write-Ahead Logging) for concurrent reads during writes
 - **FTS5** virtual table for full-text search with BM25 relevance ranking
 - **CGO required** — uses `github.com/mattn/go-sqlite3`
 
-#### Schema
+### Schema
 
 **`bids`** — Core bid records (20+ columns)
 
@@ -339,13 +272,13 @@ CREATE VIRTUAL TABLE bids_fts USING fts5(
 )
 ```
 
-#### Migrations
+### Migrations
 
 Applied automatically on `InitDB()`:
 1. Add `end_date_original` column (idempotent — logs error if exists)
 2. Backfill: `SET end_date_original = end_date WHERE end_date_original = ''`
 
-#### Key Query Patterns
+### Key Query Patterns
 
 - **Batch insert:** Transaction with `INSERT OR IGNORE` (skip duplicates)
 - **FTS search:** `SELECT ... FROM bids_fts WHERE bids_fts MATCH ? ORDER BY rank`
@@ -353,9 +286,11 @@ Applied automatically on `InitDB()`:
 - **Corrigendum upsert:** `INSERT ... ON CONFLICT(bid_id) DO UPDATE`
 - **Stats:** Single consolidated queries with CASE expressions for pipeline breakdowns
 
-### HTTP Server
+---
 
-#### Framework & Routes
+## HTTP Server
+
+### Framework & Routes
 
 Built on **Gin** (`github.com/gin-gonic/gin`).
 
@@ -378,14 +313,16 @@ Built on **Gin** (`github.com/gin-gonic/gin`).
 | GET | `/api/departments` | Typeahead autocomplete |
 | GET | `/api/categories` | Typeahead autocomplete |
 
-#### Template Functions
+### Template Functions
 
 ```go
 "safeHTML"    // Render raw HTML (for corrigendum/representation content)
 "formatDate"  // Parse multiple formats, append " IST" timezone label
 ```
 
-### Background Task Manager
+---
+
+## Background Task Manager
 
 ```
 ScrapeManager
@@ -409,9 +346,11 @@ ScrapeManager
 - Sends current status immediately on connect
 - Closes on task completion
 
-### Frontend Stack
+---
 
-#### Technologies
+## Frontend Stack
+
+### Technologies
 
 | Technology | Version | Purpose |
 |-----------|---------|---------|
@@ -420,7 +359,7 @@ ScrapeManager
 | **Chart.js** | CDN | Analytics visualizations |
 | **ChipSelect** | Custom | Multi-select autocomplete component |
 
-#### HTMX Integration
+### HTMX Integration
 
 ```html
 <!-- Real-time search with 300ms debounce -->
@@ -433,14 +372,14 @@ ScrapeManager
 <div hx-get="/api/stats/summary" hx-trigger="load"></div>
 ```
 
-#### Chart.js Visualizations
+### Chart.js Visualizations
 
 - **Pipeline doughnut:** Active vs. expired tenders
 - **Departments bar chart:** Top 10 by bid count (horizontal)
 - **Categories bar chart:** Top 10 by bid count (horizontal)
 - **Timeline line chart:** 30-day daily bid arrival trend
 
-#### ChipSelect Component
+### ChipSelect Component
 
 Custom autocomplete multi-select for department/category filtering:
 - Fetches suggestions from `/api/departments` or `/api/categories`
@@ -448,7 +387,9 @@ Custom autocomplete multi-select for department/category filtering:
 - Renders selected values as removable chips
 - Populates hidden form field for HTMX submission
 
-### Concurrency Patterns
+---
+
+## Concurrency Patterns
 
 | Pattern | Where Used | Implementation |
 |---------|-----------|----------------|
@@ -460,9 +401,11 @@ Custom autocomplete multi-select for department/category filtering:
 | **Context cancellation** | Manager tasks | `context.WithCancel` for stopping running scrapes |
 | **Pub-sub channels** | SSE broadcast | `RWMutex` + map of subscriber channels |
 
-### Error Handling
+---
 
-#### Error Log
+## Error Handling
+
+### Error Log
 
 ```go
 type ErrorLog struct {
@@ -477,7 +420,7 @@ type ErrorLog struct {
 - Dual output: stderr (console) + log file
 - Reports total error count on `Close()`
 
-#### Error Strategy
+### Error Strategy
 
 | Scope | Behavior |
 |-------|----------|
@@ -488,58 +431,15 @@ type ErrorLog struct {
 
 Errors are wrapped with `fmt.Errorf("context: %w", err)` for chain inspection.
 
-### Key Data Flows
-
-#### Scrape Flow
-
-```
-CLI: gemscraper scrape
-  → BootstrapSessions(3) [Playwright + cookie extraction]
-  → ScrapeBids [5 scrapers × 100 workers = 500 concurrent]
-     → POST /all-bids-data (paginated, 10/page)
-     → InsertBidsBatch (INSERT OR IGNORE)
-  → ScrapeCorrigendums [check all active bids for amendments]
-     → Upsert bid_other_details + corrigendum_documents
-     → Update bid end_date if extended
-```
-
-#### Search Flow
-
-```
-User types query
-  → HTMX: GET /search?q=... (300ms debounce)
-  → SearchBidsFiltered (FTS5 MATCH + filters)
-  → Render results.tmpl fragment
-  → HTMX injects into #results div
-```
-
-#### Dashboard SSE Flow
-
-```
-User clicks "Run All"
-  → POST /api/scrape/start {tasks: [scrape, download, corrigendum]}
-  → ScrapeManager.Start() → background goroutine
-  → EventSource('/api/scrape/progress')
-  → Manager broadcasts progress → SSE pushes to browser
-  → Dashboard updates progress bars, stats, charts in real-time
-```
-
 ---
 
-## Prerequisites
+## Build & Deployment
 
-- **Go 1.25+** with CGO enabled (required for SQLite)
-- **GCC** — C compiler for `go-sqlite3`
-- **Chromium dependencies** — auto-installed by Playwright on first run (~130 MB)
-  - On Linux: `libnss3`, `libatk1.0-0`, `libatk-bridge2.0-0`, `libcups2`, `libdrm2`, `libxkbcommon0`, `libgbm1`
-
-## Build
+### Build
 
 ```bash
 CGO_ENABLED=1 go build -tags "fts5" -o gemscraper ./cmd/gemscraper
 ```
-
-This produces a single ~25 MB binary.
 
 - `CGO_ENABLED=1` — Required for SQLite C bindings
 - `-tags "fts5"` — Enables SQLite full-text search
@@ -553,111 +453,25 @@ github.com/gin-gonic/gin                        Web framework
 github.com/playwright-community/playwright-go   Browser automation
 ```
 
-## Usage
+### Disk Footprint
 
-GEMTenders is operated through CLI subcommands. A typical first run follows this sequence:
+| Component | Size |
+|-----------|------|
+| Binary | ~25 MB |
+| SQLite database | ~50 MB |
+| Bid PDFs | 15-20 GB |
+| Corrigendum PDFs | ~500 MB |
+| Chromium (auto-installed) | ~130 MB |
+| **Total** | **~20 GB** |
 
-### 1. Scrape Bids
-
-Fetches all active bid listings from the GeM API and stores them in SQLite.
-
-```bash
-./gemscraper scrape [flags]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-db` | `data/gems.db` | SQLite database path |
-| `-sessions` | `3` | Browser sessions to bootstrap |
-| `-scrapers` | `5` | Parallel scraper instances |
-| `-stagger` | `30` | Seconds between scraper launches |
-| `-workers` | `100` | Workers per scraper |
-| `-rps` | `50` | Requests per second per scraper |
-
-### 2. Download PDFs
-
-Downloads bid PDF documents for all scraped bids.
-
-```bash
-./gemscraper download [flags]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-db` | `data/gems.db` | SQLite database path |
-| `-dir` | `downloads` | PDF output directory |
-| `-workers` | `100` | Download goroutines |
-| `-rps` | `50` | Download rate limit |
-| `-retries` | `5` | Max retries per file |
-
-### 3. Reindex Search
-
-Rebuilds the full-text search index. Required after the initial scrape.
-
-```bash
-./gemscraper reindex -db gems.db
-```
-
-### 4. Check Status
-
-Shows a summary of the database: total bids, PDFs downloaded, pending, and corrigendum stats.
-
-```bash
-./gemscraper status -db gems.db
-```
-
-### 5. Start Web Server
-
-Launches the web UI for search, tender details, and the analytics dashboard.
-
-```bash
-./gemscraper serve [flags]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-db` | `data/gems.db` | SQLite database path |
-| `-downloads` | `downloads` | PDF directory to serve |
-| `-addr` | `:28080` | Listen address |
-| `-sessions` | `3` | Sessions for background scrapes via UI |
-
-Open `http://localhost:28080` in your browser.
-
-## Deployment
-
-### Quick Start
-
-```bash
-# Build
-CGO_ENABLED=1 go build -tags "fts5" -o gemscraper ./cmd/gemscraper
-
-# Create data directory
-mkdir -p data
-
-# Initial data collection
-./gemscraper scrape
-./gemscraper download
-./gemscraper reindex
-
-# Start the web UI
-./gemscraper serve
-```
-
-### Recurring Scrapes (Cron)
-
-Set up periodic scraping and downloading to keep data fresh:
+### Cron Automation
 
 ```cron
-# Scrape every 6 hours
-0 */6 * * * cd /path/to/GEMTenders && ./gemscraper scrape >> scrape.log 2>&1
-
-# Download new PDFs 15 minutes after each scrape
-15 */6 * * * cd /path/to/GEMTenders && ./gemscraper download >> download.log 2>&1
+0 */6 * * *   cd /opt/GEMTenders && ./gemscraper scrape >> scrape.log 2>&1
+15 */6 * * *  cd /opt/GEMTenders && ./gemscraper download >> download.log 2>&1
 ```
 
 ### Systemd Service
-
-Create `/etc/systemd/system/gemtenders.service`:
 
 ```ini
 [Unit]
@@ -676,11 +490,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-```bash
-sudo systemctl enable --now gemtenders
-```
-
-### Reverse Proxy (Nginx)
+### Nginx Reverse Proxy
 
 ```nginx
 server {
@@ -691,22 +501,45 @@ server {
         proxy_pass http://127.0.0.1:28080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_buffering off;                    # Required for SSE
+        proxy_buffering off;  # Required for SSE streaming
     }
 }
 ```
 
-### Disk Requirements
+---
 
-| Component | Size |
-|-----------|------|
-| Binary | ~25 MB |
-| SQLite database | ~50 MB |
-| Bid PDFs | 15–20 GB |
-| Corrigendum PDFs | ~500 MB |
-| Chromium cache | ~130 MB |
-| **Total** | **~20 GB** |
+## Key Data Flows
 
-## License
+### Scrape Flow
 
-This project is for personal/internal use.
+```
+CLI: gemscraper scrape
+  → BootstrapSessions(3) [Playwright + cookie extraction]
+  → ScrapeBids [5 scrapers × 100 workers = 500 concurrent]
+     → POST /all-bids-data (paginated, 10/page)
+     → InsertBidsBatch (INSERT OR IGNORE)
+  → ScrapeCorrigendums [check all active bids for amendments]
+     → Upsert bid_other_details + corrigendum_documents
+     → Update bid end_date if extended
+```
+
+### Search Flow
+
+```
+User types query
+  → HTMX: GET /search?q=... (300ms debounce)
+  → SearchBidsFiltered (FTS5 MATCH + filters)
+  → Render results.tmpl fragment
+  → HTMX injects into #results div
+```
+
+### Dashboard SSE Flow
+
+```
+User clicks "Run All"
+  → POST /api/scrape/start {tasks: [scrape, download, corrigendum]}
+  → ScrapeManager.Start() → background goroutine
+  → EventSource('/api/scrape/progress')
+  → Manager broadcasts progress → SSE pushes to browser
+  → Dashboard updates progress bars, stats, charts in real-time
+```
