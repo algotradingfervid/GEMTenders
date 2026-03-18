@@ -254,6 +254,36 @@ func downloadCorrigendumWithRetry(client *http.Client, pdfURL string, destPath s
 	return fmt.Errorf("failed after %d attempts url=%s: %w", maxRetries, pdfURL, lastErr)
 }
 
+// DownloadPDFsWithProgress wraps DownloadPDFs and DownloadCorrigendumPDFs with progress callbacks.
+// Uses reasonable defaults: 100 workers, 50 rps, 5 retries.
+func DownloadPDFsWithProgress(db *sql.DB, pool *SessionPool, downloadDir string, errLog *ErrorLog, onProgress ProgressFunc) error {
+	if onProgress != nil {
+		onProgress(0, 0, 0, "Starting bid PDF downloads...")
+	}
+	err := DownloadPDFs(db, downloadDir, 100, 50, 5, errLog)
+	if err != nil {
+		if onProgress != nil {
+			onProgress(0, 0, 1, fmt.Sprintf("Bid PDF download error: %v", err))
+		}
+		return err
+	}
+	if onProgress != nil {
+		onProgress(0, 0, 0, "Bid PDF downloads completed, starting corrigendum PDF downloads...")
+	}
+
+	err = DownloadCorrigendumPDFs(db, downloadDir, 100, 50, 5, errLog)
+	if err != nil {
+		if onProgress != nil {
+			onProgress(0, 0, 1, fmt.Sprintf("Corrigendum PDF download error: %v", err))
+		}
+		return err
+	}
+	if onProgress != nil {
+		onProgress(0, 0, 0, "All PDF downloads completed")
+	}
+	return nil
+}
+
 func downloadFile(client *http.Client, url string, destPath string) error {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

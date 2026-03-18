@@ -218,7 +218,8 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int, err
 		return nil
 	}
 
-	log.Printf("[corrigendum] Checking %d active bids (%d workers, %d req/s)", len(bidIDs), workers, rps)
+	totalBids := int64(len(bidIDs))
+	log.Printf("[corrigendum] Checking %d active bids (%d workers, %d req/s)", totalBids, workers, rps)
 
 	limiter := rate.NewLimiter(rate.Limit(rps), rps*2)
 
@@ -233,8 +234,36 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int, err
 		checked int64
 		updated int64
 		errors  int64
-		total   = int64(len(bidIDs))
 	)
+
+	startTime := time.Now()
+
+	// Progress reporter goroutine
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				ch := atomic.LoadInt64(&checked)
+				up := atomic.LoadInt64(&updated)
+				er := atomic.LoadInt64(&errors)
+				elapsed := time.Since(startTime)
+				bidsPerSec := float64(ch+er) / elapsed.Seconds()
+				remaining := totalBids - ch - er
+				var eta time.Duration
+				if bidsPerSec > 0 {
+					eta = time.Duration(float64(remaining)/bidsPerSec) * time.Second
+				}
+				pct := float64(ch+er) / float64(totalBids) * 100
+				log.Printf("[corrigendum] %d/%d (%.1f%%) | %d updated | %d errors | %.1f bids/s | ETA %s",
+					ch+er, totalBids, pct, up, er, bidsPerSec, eta.Round(time.Second))
+			}
+		}
+	}()
 
 	for w := 0; w < workers; w++ {
 		wg.Add(1)
@@ -258,18 +287,35 @@ func ScrapeCorrigendums(pool *SessionPool, db *sql.DB, workers int, rps int, err
 				}
 
 				atomic.AddInt64(&checked, 1)
-				done := atomic.LoadInt64(&checked)
-				if done%500 == 0 {
-					log.Printf("[corrigendum] Progress: %d/%d checked, %d updated, %d errors",
-						done, total, atomic.LoadInt64(&updated), atomic.LoadInt64(&errors))
-				}
 			}
 		}()
 	}
 
 	wg.Wait()
-	log.Printf("[corrigendum] Done: %d checked, %d updated, %d errors",
-		checked, updated, errors)
+	close(done)
+
+	elapsed := time.Since(startTime)
+	log.Printf("[corrigendum] Done in %s: %d checked, %d updated, %d errors",
+		elapsed.Round(time.Second), checked, updated, errors)
+	return nil
+}
+
+// ScrapeCorrigenumsWithProgress wraps ScrapeCorrigendums with progress callbacks.
+// Uses reasonable defaults: 100 workers, 50 rps.
+func ScrapeCorrigenumsWithProgress(pool *SessionPool, db *sql.DB, errLog *ErrorLog, onProgress ProgressFunc) error {
+	if onProgress != nil {
+		onProgress(0, 0, 0, "Starting corrigendum scrape...")
+	}
+	err := ScrapeCorrigendums(pool, db, 100, 50, errLog)
+	if err != nil {
+		if onProgress != nil {
+			onProgress(0, 0, 1, fmt.Sprintf("Corrigendum scrape error: %v", err))
+		}
+		return err
+	}
+	if onProgress != nil {
+		onProgress(0, 0, 0, "Corrigendum scrape completed")
+	}
 	return nil
 }
 

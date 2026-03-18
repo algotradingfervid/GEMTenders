@@ -18,6 +18,9 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// ProgressFunc is a callback for reporting task progress to the ScrapeManager.
+type ProgressFunc func(current, total, errors int64, msg string)
+
 func DefaultPayload(page int) map[string]interface{} {
 	payload := map[string]interface{}{
 		"param": map[string]interface{}{
@@ -100,11 +103,41 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 	close(pages)
 
 	var (
-		wg      sync.WaitGroup
-		scraped int64
-		errors  int64
-		mu      sync.Mutex
+		wg        sync.WaitGroup
+		scraped   int64
+		pagesDone int64
+		errors    int64
+		mu        sync.Mutex
 	)
+
+	startTime := time.Now()
+
+	// Progress reporter goroutine
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				pd := atomic.LoadInt64(&pagesDone)
+				sc := atomic.LoadInt64(&scraped)
+				er := atomic.LoadInt64(&errors)
+				elapsed := time.Since(startTime)
+				pagesPerSec := float64(pd) / elapsed.Seconds()
+				remaining := int64(totalPages) - pd
+				var eta time.Duration
+				if pagesPerSec > 0 {
+					eta = time.Duration(float64(remaining)/pagesPerSec) * time.Second
+				}
+				pct := float64(pd) / float64(totalPages) * 100
+				log.Printf("[S%d] %d/%d pages (%.1f%%) | %d new bids | %d errors | %.1f pages/s | ETA %s",
+					scraperID, pd, totalPages, pct, sc, er, pagesPerSec, eta.Round(time.Second))
+			}
+		}
+	}()
 
 	for w := 0; w < workers; w++ {
 		wg.Add(1)
@@ -124,6 +157,7 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 					if err != nil {
 						errLog.Log("scrape", fmt.Sprintf("page=%d", page), err)
 						atomic.AddInt64(&errors, 1)
+						atomic.AddInt64(&pagesDone, 1)
 						continue
 					}
 				}
@@ -139,22 +173,21 @@ func runScraper(scraperID int, pool *SessionPool, db *sql.DB, totalPages int, wo
 					atomic.AddInt64(&scraped, int64(inserted))
 				}
 
-				done := atomic.LoadInt64(&scraped)
-				if done > 0 && done%1000 == 0 {
-					log.Printf("[S%d] Progress: %d new bids, %d errors",
-						scraperID, done, atomic.LoadInt64(&errors))
-				}
+				atomic.AddInt64(&pagesDone, 1)
 			}
 		}(w)
 	}
 
 	wg.Wait()
+	close(done)
+
+	elapsed := time.Since(startTime)
 	total, _, countErr := GetBidCount(db)
 	if countErr != nil {
 		log.Printf("[scraper] GetBidCount error: %v", countErr)
 	}
-	log.Printf("[S%d] Done: %d new bids inserted, %d errors, DB total: %d",
-		scraperID, scraped, errors, total)
+	log.Printf("[S%d] Done in %s: %d/%d pages, %d new bids inserted, %d errors, DB total: %d",
+		scraperID, elapsed.Round(time.Second), pagesDone, totalPages, scraped, errors, total)
 }
 
 func fetchPage(sp *SessionPair, page int) (*APIResponse, error) {
@@ -223,4 +256,23 @@ func fetchPage(sp *SessionPair, page int) (*APIResponse, error) {
 	}
 
 	return &apiResp, nil
+}
+
+// ScrapeBidsWithProgress wraps ScrapeBids with progress callbacks for the ScrapeManager.
+// Uses reasonable defaults: 5 scrapers, 30s stagger, 100 workers, 50 rps.
+func ScrapeBidsWithProgress(pool *SessionPool, db *sql.DB, errLog *ErrorLog, onProgress ProgressFunc) error {
+	if onProgress != nil {
+		onProgress(0, 0, 0, "Starting bid scrape...")
+	}
+	err := ScrapeBids(pool, db, 5, 30, 100, 50, errLog)
+	if err != nil {
+		if onProgress != nil {
+			onProgress(0, 0, 1, fmt.Sprintf("Scrape error: %v", err))
+		}
+		return err
+	}
+	if onProgress != nil {
+		onProgress(0, 0, 0, "Bid scrape completed")
+	}
+	return nil
 }
