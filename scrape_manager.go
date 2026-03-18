@@ -173,15 +173,27 @@ func (sm *ScrapeManager) run(ctx context.Context, dbPath string, tasks []ScrapeT
 	}
 	defer db.Close()
 
-	// Bootstrap sessions
-	pool, err := BootstrapSessions(sessionCount)
-	if err != nil {
-		p := ScrapeProgress{Task: tasks[0], Status: "error", Message: fmt.Sprintf("Session bootstrap failed: %v", err), StartedAt: startTime}
-		sm.broadcast(p)
-		sm.mu.Lock()
-		sm.lastRun = &p
-		sm.mu.Unlock()
-		return
+	// Only bootstrap sessions if scrape or corrigendum tasks are requested
+	// (downloads don't need CSRF tokens or authenticated sessions)
+	var pool *SessionPool
+	needsSessions := false
+	for _, t := range tasks {
+		if t == TaskScrape || t == TaskCorrigendum {
+			needsSessions = true
+			break
+		}
+	}
+	if needsSessions {
+		sm.broadcast(ScrapeProgress{Task: tasks[0], Status: "running", Message: "Bootstrapping sessions...", StartedAt: startTime})
+		pool, err = BootstrapSessions(sessionCount)
+		if err != nil {
+			p := ScrapeProgress{Task: tasks[0], Status: "error", Message: fmt.Sprintf("Session bootstrap failed: %v", err), StartedAt: startTime}
+			sm.broadcast(p)
+			sm.mu.Lock()
+			sm.lastRun = &p
+			sm.mu.Unlock()
+			return
+		}
 	}
 
 	errLog := NewErrorLog("web-scrape")
