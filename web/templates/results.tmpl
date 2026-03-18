@@ -1,67 +1,65 @@
 {{ if .Error }}
-<div class="error">Search error: {{ .Error }}</div>
+<div class="bg-red-50 text-red-700 rounded-xl p-4">Search error: {{ .Error }}</div>
 {{ else }}
-<div class="results-header">
+<div class="text-sm text-slate-500 mb-4 pb-3 border-b border-slate-200">
     <span>Showing {{ .StartRecord }} - {{ .EndRecord }} records of {{ .Total }} records</span>
 </div>
 {{ range .Results }}
-<a href="/tender/{{ .ID }}" class="result-card">
-    <div class="result-card-header">
-        <div class="bid-numbers">
-            <span class="label">Bid No:</span>
-            <span class="bid-number">{{ .BidNumber }}</span>
+<a href="/tender/{{ .ID }}" class="block bg-white rounded-xl p-5 mb-3 border border-slate-200 hover:shadow-md hover:border-slate-300 transition-all duration-150 no-underline cursor-pointer {{ if eq .IsHighValue 1 }}border-l-4 border-l-amber-400{{ else }}border-l-4 border-l-slate-300{{ end }}">
+    <div class="flex justify-between items-center mb-3 pb-3 border-b border-slate-100">
+        <div class="flex items-center gap-1">
+            <span class="font-semibold text-slate-900 text-sm">{{ .BidNumber }}</span>
             {{ if .BidNumberParent }}
-            <span class="arrow">→</span>
-            <span class="label">Parent:</span>
-            <span class="bid-number-parent">{{ .BidNumberParent }}</span>
+            <span class="text-slate-400 mx-1">&rarr;</span>
+            <span class="text-blue-600 text-sm">{{ .BidNumberParent }}</span>
             {{ end }}
         </div>
-        {{ if eq .IsHighValue 1 }}<span class="badge high-value">High Value</span>{{ end }}
-        {{ if eq .HasCorrigendum 1 }}<span class="badge corrigendum">C</span>{{ end }}
-        {{ if eq .HasRepresentation 1 }}<span class="badge representation">R</span>{{ end }}
+        <div class="flex items-center gap-1.5">
+            {{ if eq .IsHighValue 1 }}<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">High Value</span>{{ end }}
+            {{ if eq .HasCorrigendum 1 }}<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-orange-500 text-white">C</span>{{ end }}
+            {{ if eq .HasRepresentation 1 }}<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-purple-500 text-white">R</span>{{ end }}
+        </div>
     </div>
-    <div class="result-card-body">
-        <div class="result-left">
-            <div class="result-row">
-                <span class="label">Items:</span>
-                <span class="value">{{ .CategoryName }}</span>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+            <div class="mb-2">
+                <span class="text-xs text-slate-400 uppercase tracking-wide">Items</span>
+                <div class="text-sm text-slate-700">{{ .CategoryName }}</div>
             </div>
-            <div class="result-row">
-                <span class="label">Quantity:</span>
-                <span class="value">{{ .TotalQuantity }}</span>
+            <div>
+                <span class="text-xs text-slate-400 uppercase tracking-wide">Quantity</span>
+                <div class="text-sm text-slate-700">{{ .TotalQuantity }}</div>
             </div>
         </div>
-        <div class="result-middle">
-            <div class="result-row">
-                <span class="label">Department Name And Address:</span>
-            </div>
-            <div class="ministry-name">{{ .MinistryName }}</div>
-            {{ if .DepartmentName }}<div class="dept-name">{{ .DepartmentName }}</div>{{ end }}
+        <div>
+            <span class="text-xs text-slate-400 uppercase tracking-wide">Department</span>
+            <div class="text-sm text-blue-600 font-medium">{{ .MinistryName }}</div>
+            {{ if .DepartmentName }}<div class="text-sm text-slate-500">{{ .DepartmentName }}</div>{{ end }}
         </div>
-        <div class="result-right">
-            <div class="result-row">
-                <span class="label">Start Date:</span>
-                <span class="value date-start">{{ .StartDate }}</span>
+        <div>
+            <div class="mb-2">
+                <span class="text-xs text-slate-400 uppercase tracking-wide">Start Date</span>
+                <div class="text-sm text-emerald-600">{{ .StartDate }}</div>
             </div>
-            <div class="result-row">
-                <span class="label">End Date:</span>
-                <span class="value date-end">{{ .EndDate }}</span>
+            <div>
+                <span class="text-xs text-slate-400 uppercase tracking-wide">End Date</span>
+                <div class="text-sm text-red-500">{{ .EndDate }}</div>
             </div>
         </div>
     </div>
 </a>
 {{ else }}
-<div class="no-results">No tenders found. Try a different search term.</div>
+<div class="text-center py-12 text-slate-400">No tenders found. Try a different search term.</div>
 {{ end }}
 
 {{ if gt .TotalPages 1 }}
-<div class="pagination">
+<div class="flex items-center justify-center gap-3 mt-6 pt-4">
     {{ if .HasPrev }}
-    <button hx-get="/search?q={{ .Query }}&page={{ .PrevPage }}" hx-target="#results">← Previous</button>
+    <button hx-get="/search?q={{ .Query }}&page={{ .PrevPage }}{{ if .Departments }}&departments={{ .Departments }}{{ end }}{{ if .Categories }}&categories={{ .Categories }}{{ end }}{{ if .StartDate }}&start_date={{ .StartDate }}{{ end }}{{ if .EndDate }}&end_date={{ .EndDate }}{{ end }}" hx-target="#results" class="px-4 py-2 bg-white border border-slate-200 rounded-full text-sm text-slate-700 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-colors cursor-pointer">&larr; Previous</button>
     {{ end }}
-    <span>Page {{ .Page }} of {{ .TotalPages }}</span>
+    <span class="text-sm text-slate-500">Page {{ .Page }} of {{ .TotalPages }}</span>
     {{ if .HasNext }}
-    <button hx-get="/search?q={{ .Query }}&page={{ .NextPage }}" hx-target="#results">Next →</button>
+    <button hx-get="/search?q={{ .Query }}&page={{ .NextPage }}{{ if .Departments }}&departments={{ .Departments }}{{ end }}{{ if .Categories }}&categories={{ .Categories }}{{ end }}{{ if .StartDate }}&start_date={{ .StartDate }}{{ end }}{{ if .EndDate }}&end_date={{ .EndDate }}{{ end }}" hx-target="#results" class="px-4 py-2 bg-white border border-slate-200 rounded-full text-sm text-slate-700 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-colors cursor-pointer">Next &rarr;</button>
     {{ end }}
 </div>
 {{ end }}

@@ -4,26 +4,133 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GEM Tender Discovery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-    <header>
-        <h1>GEM Tender Discovery</h1>
-    </header>
-    <main>
-        <div class="search-container">
-            <input type="search"
-                   name="q"
-                   placeholder="Search tenders by keyword, bid number, ministry, department..."
-                   hx-get="/search"
-                   hx-trigger="input changed delay:300ms, search"
-                   hx-target="#results"
-                   hx-indicator="#spinner"
-                   autocomplete="off">
-            <span id="spinner" class="htmx-indicator">Searching...</span>
+<body class="bg-slate-50 min-h-screen">
+    <!-- Fixed top nav -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900">
+        <div class="flex items-center justify-between px-6 py-3">
+            <!-- Left: brand -->
+            <div class="flex-shrink-0">
+                <span class="text-white font-semibold text-lg">GEM Tender Discovery</span>
+            </div>
+            <!-- Center: search -->
+            <div class="flex-1 flex flex-col items-center mx-8">
+                <div class="relative w-full max-w-2xl" role="search">
+                    <input type="search"
+                           name="q"
+                           aria-label="Search tenders"
+                           placeholder="Search tenders by keyword, bid number, ministry, department..."
+                           class="bg-slate-800 text-white placeholder-slate-400 rounded-full px-5 py-2.5 w-full pl-11 focus:outline-none focus:ring-2 focus:ring-slate-500"
+                           hx-get="/search"
+                           hx-trigger="input changed delay:300ms, search"
+                           hx-target="#results"
+                           hx-indicator="#spinner"
+                           autocomplete="off">
+                    <!-- Search icon -->
+                    <div class="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
+                        <svg class="w-4 h-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 1 0 5.1 5.1a7.5 7.5 0 0 0 11.55 11.55z" />
+                        </svg>
+                    </div>
+                </div>
+                <button id="adv-toggle" onclick="toggleFilters()" class="text-xs text-blue-400 hover:text-blue-300 mt-2 bg-transparent border-none cursor-pointer">
+                    Advanced Search &#9660;
+                </button>
+            </div>
+            <!-- Right: nav links -->
+            <div class="flex-shrink-0 flex gap-4">
+                <a href="/dashboard" class="text-slate-400 hover:text-white text-sm no-underline">Dashboard</a>
+            </div>
         </div>
+    </nav>
+
+    <!-- Advanced Search Filter Panel -->
+    <div id="filter-panel" class="hidden max-w-3xl mx-auto px-6 pt-20 pb-0">
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <!-- Departments chip-select -->
+                <div>
+                    <label class="block text-xs text-slate-500 mb-1.5 font-medium uppercase tracking-wide">Departments</label>
+                    <div id="dept-select" class="chip-select bg-slate-50 rounded-lg border border-slate-200 p-2 min-h-[42px] relative">
+                        <div class="chips flex flex-wrap gap-1 mb-1"></div>
+                        <input type="text" placeholder="Type to search..." class="bg-transparent border-none outline-none text-sm text-slate-800 w-full">
+                        <input type="hidden" name="departments">
+                        <div class="dropdown hidden absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto z-10"></div>
+                    </div>
+                </div>
+                <!-- Categories chip-select -->
+                <div>
+                    <label class="block text-xs text-slate-500 mb-1.5 font-medium uppercase tracking-wide">Categories</label>
+                    <div id="cat-select" class="chip-select bg-slate-50 rounded-lg border border-slate-200 p-2 min-h-[42px] relative">
+                        <div class="chips flex flex-wrap gap-1 mb-1"></div>
+                        <input type="text" placeholder="Type to search..." class="bg-transparent border-none outline-none text-sm text-slate-800 w-full">
+                        <input type="hidden" name="categories">
+                        <div class="dropdown hidden absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto z-10"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-xs text-slate-500 mb-1.5 font-medium uppercase tracking-wide">Start Date</label>
+                    <input type="date" id="filter-start-date" class="bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 w-full outline-none focus:ring-2 focus:ring-slate-500">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-500 mb-1.5 font-medium uppercase tracking-wide">End Date</label>
+                    <input type="date" id="filter-end-date" class="bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 w-full outline-none focus:ring-2 focus:ring-slate-500">
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="applyFilters()" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer">Apply Filters</button>
+                <button onclick="clearFilters()" class="px-4 py-2 text-sm text-slate-500 hover:text-slate-800 cursor-pointer bg-transparent border-none">Clear Filters</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main content -->
+    <main class="max-w-7xl mx-auto px-6 py-8 pt-24">
+        <span id="spinner" class="htmx-indicator text-slate-400 text-sm">Searching...</span>
         <div id="results" hx-get="/search?q=&page=1" hx-trigger="load" hx-indicator="#spinner"></div>
     </main>
+
+    <script src="/static/chip-select.js"></script>
+    <script>
+    let deptSelect, catSelect;
+    document.addEventListener('DOMContentLoaded', function() {
+        deptSelect = new ChipSelect(document.getElementById('dept-select'), '/api/departments', 'departments');
+        catSelect = new ChipSelect(document.getElementById('cat-select'), '/api/categories', 'categories');
+    });
+
+    function toggleFilters() {
+        var panel = document.getElementById('filter-panel');
+        panel.classList.toggle('hidden');
+        var btn = document.getElementById('adv-toggle');
+        btn.innerHTML = panel.classList.contains('hidden') ? 'Advanced Search &#9660;' : 'Advanced Search &#9650;';
+    }
+
+    function applyFilters() {
+        var q = document.querySelector('input[name="q"]').value;
+        var depts = deptSelect.getValues().join(',');
+        var cats = catSelect.getValues().join(',');
+        var start = document.getElementById('filter-start-date').value;
+        var end = document.getElementById('filter-end-date').value;
+        var url = '/search?q=' + encodeURIComponent(q) + '&page=1';
+        if (depts) url += '&departments=' + encodeURIComponent(depts);
+        if (cats) url += '&categories=' + encodeURIComponent(cats);
+        if (start) url += '&start_date=' + start;
+        if (end) url += '&end_date=' + end;
+        htmx.ajax('GET', url, {target: '#results', indicator: '#spinner'});
+    }
+
+    function clearFilters() {
+        deptSelect.selected = []; deptSelect.render();
+        catSelect.selected = []; catSelect.render();
+        document.getElementById('filter-start-date').value = '';
+        document.getElementById('filter-end-date').value = '';
+        applyFilters();
+    }
+    </script>
 </body>
 </html>

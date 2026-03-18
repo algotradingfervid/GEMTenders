@@ -4,84 +4,112 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .Bid.BidNumber }} — GEM Tender</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-    <header>
-        <h1><a href="/" style="color:white;text-decoration:none;">GEM Tender Discovery</a></h1>
-    </header>
-    <main>
-        <a href="/" class="back-link">← Back to search</a>
+<body class="bg-slate-50 min-h-screen">
+    <!-- Fixed top nav -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-900">
+        <div class="flex items-center justify-between px-6 py-3">
+            <a href="/" class="text-white font-semibold text-lg no-underline">GEM Tender Discovery</a>
+            <div class="flex gap-4">
+                <a href="/" class="text-slate-400 hover:text-white text-sm no-underline">Search</a>
+                <a href="/dashboard" class="text-slate-400 hover:text-white text-sm no-underline">Dashboard</a>
+            </div>
+        </div>
+    </nav>
 
-        <div class="tender-detail">
-            <div class="tender-header">
-                <h2>{{ .Bid.BidNumber }}</h2>
-                {{ if eq .Bid.IsHighValue 1 }}<span class="badge high-value">High Value</span>{{ end }}
+    <!-- Main content -->
+    <main class="max-w-5xl mx-auto px-6 py-8 pt-24">
+        <!-- Back link -->
+        <a href="/" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900 transition-colors mb-6 no-underline">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+            </svg>
+            Back to search
+        </a>
+
+        <!-- Header card -->
+        <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm mb-6">
+            <div class="flex items-center gap-3">
+                <h2 class="text-xl font-bold text-slate-900">{{ .Bid.BidNumber }}</h2>
+                {{ if eq .Bid.IsHighValue 1 }}
+                <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">High Value</span>
+                {{ end }}
             </div>
 
-            <div class="tender-meta-grid">
-                <div class="meta-item">
-                    <span class="meta-label">Category</span>
-                    <span class="meta-value">{{ .Bid.CategoryName }}</span>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-6 mt-5">
+                <div>
+                    <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Category</div>
+                    <div class="text-sm text-slate-800 mt-1">{{ .Bid.CategoryName }}</div>
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">Ministry</span>
-                    <span class="meta-value">{{ .Bid.MinistryName }}</span>
+                <div>
+                    <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Ministry</div>
+                    <div class="text-sm text-slate-800 mt-1">{{ .Bid.MinistryName }}</div>
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">Department</span>
-                    <span class="meta-value">{{ .Bid.DepartmentName }}</span>
+                <div>
+                    <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Department</div>
+                    <div class="text-sm text-slate-800 mt-1">{{ .Bid.DepartmentName }}</div>
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">Quantity</span>
-                    <span class="meta-value">{{ .Bid.TotalQuantity }}</span>
+                <div>
+                    <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Quantity</div>
+                    <div class="text-sm text-slate-800 mt-1">{{ .Bid.TotalQuantity }}</div>
+                </div>
+                <div>
+                    <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Start Date</div>
+                    <div class="text-sm text-emerald-600 mt-1">{{ .Bid.StartDate }}</div>
+                </div>
+                <div>
+                    <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold">End Date</div>
+                    <div class="text-sm text-red-500 mt-1">{{ .Bid.EndDate }}</div>
                 </div>
                 {{ if .Bid.BidNumberParent }}
-                <div class="meta-item">
-                    <span class="meta-label">Parent Bid</span>
-                    <span class="meta-value">{{ .Bid.BidNumberParent }}</span>
+                <div>
+                    <div class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Parent Bid</div>
+                    <div class="text-sm text-slate-800 mt-1">{{ .Bid.BidNumberParent }}</div>
                 </div>
                 {{ end }}
-                <div class="meta-item">
-                    <span class="meta-label">Start Date</span>
-                    <span class="meta-value">{{ .Bid.StartDate }}</span>
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">End Date</span>
-                    <span class="meta-value">{{ .Bid.EndDate }}</span>
-                </div>
             </div>
         </div>
 
+        <!-- Corrigendum / Representation section -->
         {{ if .OtherDetails }}
-        <div class="corrigendum-section">
-            <div class="tabs">
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
+            <!-- Tab bar -->
+            <div class="border-b border-slate-200 px-6 pt-4 flex">
                 {{ if eq .OtherDetails.HasCorrigendum 1 }}
-                <button class="tab active" onclick="showTab('corrigendum')">
-                    Corrigendum <span class="badge corrigendum">{{ .OtherDetails.CorrigendumCount }}</span>
+                <button class="tab-btn pb-3 px-1 mr-6 text-sm font-medium border-b-2 border-blue-600 text-blue-600 bg-transparent cursor-pointer" onclick="showTab('corrigendum')">
+                    Corrigendum
+                    <span class="bg-orange-500 text-white text-xs px-2 py-0.5 rounded-full ml-2">{{ .OtherDetails.CorrigendumCount }}</span>
                 </button>
                 {{ end }}
                 {{ if eq .OtherDetails.HasRepresentation 1 }}
-                <button class="tab{{ if ne .OtherDetails.HasCorrigendum 1 }} active{{ end }}" onclick="showTab('representation')">Representation</button>
+                <button class="tab-btn pb-3 px-1 mr-6 text-sm font-medium border-b-2 bg-transparent cursor-pointer {{ if ne .OtherDetails.HasCorrigendum 1 }}border-blue-600 text-blue-600{{ else }}border-transparent text-slate-500 hover:text-slate-700{{ end }}" onclick="showTab('representation')">
+                    Representation
+                </button>
                 {{ end }}
             </div>
 
+            <!-- Tab content -->
             {{ if eq .OtherDetails.HasCorrigendum 1 }}
-            <div id="tab-corrigendum" class="tab-content active">
+            <div id="tab-corrigendum" class="tab-content p-6">
                 {{ if .CorrDocs }}
-                <h4>Corrigendum Documents</h4>
-                <ul class="corr-docs">
+                <h4 class="text-sm font-semibold text-slate-700 mb-3">Corrigendum Documents</h4>
+                <div class="mb-4">
                     {{ range .CorrDocs }}
-                    <li>
+                    <div class="flex items-center gap-4 py-3 border-b border-slate-100">
                         {{ if eq .Downloaded 1 }}
-                        <a href="/corrigendum-pdf/{{ .CorrigendumID }}/{{ .BidID }}">Download PDF</a>
+                        <a href="/corrigendum-pdf/{{ .CorrigendumID }}/{{ .BidID }}" class="text-blue-600 hover:text-blue-800 font-medium text-sm no-underline">Download PDF</a>
                         {{ else }}
-                        <span class="pending">Pending download</span>
+                        <span class="text-slate-400 italic text-sm">Pending download</span>
                         {{ end }}
-                        {{ if .ModifiedOn }}<span class="date">Modified: {{ .ModifiedOn }}</span>{{ end }}
-                    </li>
+                        {{ if .ModifiedOn }}
+                        <span class="text-xs text-slate-400">Modified: {{ .ModifiedOn }}</span>
+                        {{ end }}
+                    </div>
                     {{ end }}
-                </ul>
+                </div>
                 {{ end }}
                 <div class="corr-html">
                     {{ .OtherDetails.CorrigendumHTML | safeHTML }}
@@ -90,7 +118,7 @@
             {{ end }}
 
             {{ if eq .OtherDetails.HasRepresentation 1 }}
-            <div id="tab-representation" class="tab-content"{{ if eq .OtherDetails.HasCorrigendum 1 }} style="display:none;"{{ end }}>
+            <div id="tab-representation" class="tab-content p-6"{{ if eq .OtherDetails.HasCorrigendum 1 }} style="display:none;"{{ end }}>
                 <div class="repr-html">
                     {{ .OtherDetails.RepresentationHTML | safeHTML }}
                 </div>
@@ -101,16 +129,21 @@
         <script>
         function showTab(name) {
             document.querySelectorAll('.tab-content').forEach(function(el) { el.style.display = 'none'; });
-            document.querySelectorAll('.tab').forEach(function(el) { el.classList.remove('active'); });
+            document.querySelectorAll('.tab-btn').forEach(function(el) {
+                el.classList.remove('border-blue-600', 'text-blue-600');
+                el.classList.add('border-transparent', 'text-slate-500');
+            });
             document.getElementById('tab-' + name).style.display = 'block';
-            event.target.classList.add('active');
+            event.currentTarget.classList.remove('border-transparent', 'text-slate-500');
+            event.currentTarget.classList.add('border-blue-600', 'text-blue-600');
         }
         </script>
         {{ end }}
 
-        <div class="pdf-container">
-            <h3>Bid Document</h3>
-            <iframe src="/pdf/{{ .PDFID }}" width="100%" height="800px"></iframe>
+        <!-- PDF card -->
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <h3 class="text-lg font-semibold text-slate-800 p-6 border-b border-slate-100">Bid Document</h3>
+            <iframe src="/pdf/{{ .PDFID }}" class="w-full border-0" style="height:800px;"></iframe>
         </div>
     </main>
 </body>
