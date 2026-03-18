@@ -58,6 +58,7 @@
                     <div class="w-full bg-slate-200 rounded-full h-2.5 mb-3">
                         <div id="progress-bar" class="bg-blue-500 h-2.5 rounded-full transition-all duration-300" style="width:0%"></div>
                     </div>
+                    <p id="progress-message" class="text-xs text-slate-500 mb-3"></p>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                         <div><span class="text-slate-400">Processed:</span> <span id="stat-processed" class="text-slate-700 font-medium">0</span></div>
                         <div><span class="text-slate-400">Total:</span> <span id="stat-total" class="text-slate-700 font-medium">0</span></div>
@@ -146,13 +147,18 @@
     }
 
     function confirmScrape() {
+        const tasks = [...pendingTasks];
         hideScrapeModal();
         fetch('/api/scrape/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tasks: pendingTasks })
-        }).then(() => {
-            connectSSE();
+            body: JSON.stringify({ tasks: tasks })
+        }).then(r => r.json()).then(data => {
+            if (data.status === 'started') {
+                connectSSE();
+            } else {
+                alert(data.error || 'Failed to start scrape');
+            }
         }).catch(err => console.error('Failed to start scrape:', err));
     }
 
@@ -170,15 +176,16 @@
             try {
                 const d = JSON.parse(e.data);
                 document.getElementById('progress-task').textContent = d.task || '—';
-                const pct = d.total > 0 ? Math.round((d.processed / d.total) * 100) : 0;
+                document.getElementById('progress-message').textContent = d.message || '';
+                const pct = d.total > 0 ? Math.round((d.current / d.total) * 100) : 0;
                 document.getElementById('progress-pct').textContent = pct + '%';
                 document.getElementById('progress-bar').style.width = pct + '%';
-                document.getElementById('stat-processed').textContent = d.processed || 0;
+                document.getElementById('stat-processed').textContent = d.current || 0;
                 document.getElementById('stat-total').textContent = d.total || 0;
                 document.getElementById('stat-errors').textContent = d.errors || 0;
-                document.getElementById('stat-elapsed').textContent = d.elapsed || '—';
+                document.getElementById('stat-elapsed').textContent = Math.round(d.elapsed_sec || 0) + 's';
 
-                if (d.done) {
+                if (d.status === 'completed') {
                     evtSource.close();
                     evtSource = null;
                     // Refresh stats
