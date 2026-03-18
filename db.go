@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -317,6 +318,93 @@ func SearchBids(db *sql.DB, query string, limit int, offset int) ([]BidResult, i
 	`, query, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("search: %w", err)
+	}
+	defer rows.Close()
+
+	return scanBidResults(rows, total)
+}
+
+type SearchFilters struct {
+	Query       string
+	Departments []string
+	Categories  []string
+	StartDate   string // YYYY-MM-DD
+	EndDate     string // YYYY-MM-DD
+}
+
+func SearchBidsFiltered(db *sql.DB, filters SearchFilters, limit, offset int) ([]BidResult, int, error) {
+	var (
+		fromClause  string
+		conditions  []string
+		args        []interface{}
+		orderClause string
+	)
+
+	if filters.Query != "" {
+		fromClause = `FROM bids_fts f
+		JOIN bids b ON f.rowid = b.rowid
+		LEFT JOIN bid_other_details bod ON bod.bid_id = b.bid_id`
+		conditions = append(conditions, "bids_fts MATCH ?")
+		args = append(args, filters.Query)
+		orderClause = "ORDER BY rank"
+	} else {
+		fromClause = `FROM bids b
+		LEFT JOIN bid_other_details bod ON bod.bid_id = b.bid_id`
+		orderClause = "ORDER BY b.end_date DESC"
+	}
+
+	if len(filters.Departments) > 0 {
+		placeholders := make([]string, len(filters.Departments))
+		for i, d := range filters.Departments {
+			placeholders[i] = "?"
+			args = append(args, d)
+		}
+		conditions = append(conditions, "b.department_name IN ("+strings.Join(placeholders, ",")+")")
+	}
+
+	if len(filters.Categories) > 0 {
+		placeholders := make([]string, len(filters.Categories))
+		for i, cat := range filters.Categories {
+			placeholders[i] = "?"
+			args = append(args, cat)
+		}
+		conditions = append(conditions, "b.category_name IN ("+strings.Join(placeholders, ",")+")")
+	}
+
+	if filters.StartDate != "" {
+		conditions = append(conditions, "b.end_date >= ?")
+		args = append(args, filters.StartDate)
+	}
+
+	if filters.EndDate != "" {
+		conditions = append(conditions, "b.end_date <= ?")
+		args = append(args, filters.EndDate+"T23:59:59")
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	// Count total
+	countSQL := "SELECT COUNT(*) " + fromClause + " " + whereClause
+	var total int
+	if err := db.QueryRow(countSQL, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count: %w", err)
+	}
+
+	// Fetch results
+	selectCols := `b.id, b.bid_id, b.bid_number, b.bid_number_parent, b.bid_id_parent,
+		       b.category_name, b.total_quantity, b.start_date, b.end_date,
+		       b.is_high_value, b.ministry_name, b.department_name,
+		       COALESCE(bod.has_corrigendum, 0), COALESCE(bod.has_representation, 0)`
+
+	querySQL := "SELECT " + selectCols + " " + fromClause + " " + whereClause + " " + orderClause + " LIMIT ? OFFSET ?"
+	queryArgs := append(args, limit, offset)
+
+	rows, err := db.Query(querySQL, queryArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("search filtered: %w", err)
 	}
 	defer rows.Close()
 

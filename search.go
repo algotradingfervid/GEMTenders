@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,7 +19,31 @@ func SearchHandler(db *sql.DB) gin.HandlerFunc {
 		limit := 20
 		offset := (page - 1) * limit
 
-		results, total, err := SearchBids(db, query, limit, offset)
+		filters := SearchFilters{
+			Query:     query,
+			StartDate: c.Query("start_date"),
+			EndDate:   c.Query("end_date"),
+		}
+		if depts := c.Query("departments"); depts != "" {
+			filters.Departments = strings.Split(depts, ",")
+		}
+		if cats := c.Query("categories"); cats != "" {
+			filters.Categories = strings.Split(cats, ",")
+		}
+
+		hasFilters := len(filters.Departments) > 0 || len(filters.Categories) > 0 ||
+			filters.StartDate != "" || filters.EndDate != ""
+
+		var results []BidResult
+		var total int
+		var err error
+
+		if hasFilters {
+			results, total, err = SearchBidsFiltered(db, filters, limit, offset)
+		} else {
+			results, total, err = SearchBids(db, query, limit, offset)
+		}
+
 		if err != nil {
 			c.HTML(http.StatusInternalServerError, "results.tmpl", gin.H{
 				"Error": err.Error(),
@@ -42,6 +67,10 @@ func SearchHandler(db *sql.DB) gin.HandlerFunc {
 			"NextPage":    page + 1,
 			"StartRecord": startRecord,
 			"EndRecord":   endRecord,
+			"Departments": c.Query("departments"),
+			"Categories":  c.Query("categories"),
+			"StartDate":   c.Query("start_date"),
+			"EndDate":     c.Query("end_date"),
 		})
 	}
 }
