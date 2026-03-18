@@ -24,6 +24,8 @@ func StartServer(db *sql.DB, downloadDir string, addr string, sm *ScrapeManager,
 	r.SetFuncMap(template.FuncMap{
 		"safeHTML": func(s string) template.HTML { return template.HTML(s) },
 		"formatDate": func(s string) string {
+			// GEM API dates have a Z suffix but are actually IST, not UTC.
+			// Parse as literal strings without timezone conversion.
 			formats := []string{
 				"2006-01-02T15:04:05Z",
 				"2006-01-02T15:04:05",
@@ -31,7 +33,7 @@ func StartServer(db *sql.DB, downloadDir string, addr string, sm *ScrapeManager,
 			}
 			for _, f := range formats {
 				if t, err := time.Parse(f, s); err == nil {
-					return t.Format("02 Jan 2006, 3:04 PM")
+					return t.Format("02 Jan 2006, 3:04 PM") + " IST"
 				}
 			}
 			return s
