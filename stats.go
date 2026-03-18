@@ -89,7 +89,11 @@ func GetSummaryStats(db *sql.DB) (*SummaryStats, error) {
 func GetPipelineStats(db *sql.DB) (*PipelineStats, error) {
 	p := &PipelineStats{}
 
-	now := time.Now().UTC().Format("2006-01-02T15:04:05")
+	t := time.Now().UTC()
+	now := t.Format("2006-01-02T15:04:05")
+	h24 := t.Add(24 * time.Hour).Format("2006-01-02T15:04:05")
+	h48 := t.Add(48 * time.Hour).Format("2006-01-02T15:04:05")
+	d7 := t.Add(7 * 24 * time.Hour).Format("2006-01-02T15:04:05")
 
 	if err := db.QueryRow("SELECT COUNT(*) FROM bids WHERE end_date > ?", now).Scan(&p.Active); err != nil {
 		return nil, fmt.Errorf("count active: %w", err)
@@ -99,17 +103,14 @@ func GetPipelineStats(db *sql.DB) (*PipelineStats, error) {
 		return nil, fmt.Errorf("count expired: %w", err)
 	}
 
-	h24 := time.Now().UTC().Add(24 * time.Hour).Format("2006-01-02T15:04:05")
 	if err := db.QueryRow("SELECT COUNT(*) FROM bids WHERE end_date > ? AND end_date <= ?", now, h24).Scan(&p.Closing24h); err != nil {
 		return nil, fmt.Errorf("count closing 24h: %w", err)
 	}
 
-	h48 := time.Now().UTC().Add(48 * time.Hour).Format("2006-01-02T15:04:05")
 	if err := db.QueryRow("SELECT COUNT(*) FROM bids WHERE end_date > ? AND end_date <= ?", now, h48).Scan(&p.Closing48h); err != nil {
 		return nil, fmt.Errorf("count closing 48h: %w", err)
 	}
 
-	d7 := time.Now().UTC().Add(7 * 24 * time.Hour).Format("2006-01-02T15:04:05")
 	if err := db.QueryRow("SELECT COUNT(*) FROM bids WHERE end_date > ? AND end_date <= ?", now, d7).Scan(&p.Closing7d); err != nil {
 		return nil, fmt.Errorf("count closing 7d: %w", err)
 	}

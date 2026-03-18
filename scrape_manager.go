@@ -122,6 +122,10 @@ func (sm *ScrapeManager) broadcast(p ScrapeProgress) {
 // inside the goroutine (SQLite connections are not safe to share across goroutines that
 // do heavy concurrent writes).
 func (sm *ScrapeManager) Start(dbPath string, tasks []ScrapeTask, sessionCount int) error {
+	if len(tasks) == 0 {
+		return fmt.Errorf("no tasks specified")
+	}
+
 	sm.mu.Lock()
 	if sm.running {
 		sm.mu.Unlock()
@@ -129,10 +133,7 @@ func (sm *ScrapeManager) Start(dbPath string, tasks []ScrapeTask, sessionCount i
 	}
 	sm.running = true
 	sm.tasks = tasks
-	sm.mu.Unlock()
-
 	ctx, cancel := context.WithCancel(context.Background())
-	sm.mu.Lock()
 	sm.cancel = cancel
 	sm.mu.Unlock()
 
@@ -220,7 +221,7 @@ func (sm *ScrapeManager) run(ctx context.Context, dbPath string, tasks []ScrapeT
 		case TaskScrape:
 			taskErr = ScrapeBidsWithProgress(pool, db, errLog, onProgress)
 		case TaskDownload:
-			taskErr = DownloadPDFsWithProgress(db, pool, "downloads", errLog, onProgress)
+			taskErr = DownloadPDFsWithProgress(db, "downloads", errLog, onProgress)
 		case TaskCorrigendum:
 			taskErr = ScrapeCorrigenumsWithProgress(pool, db, errLog, onProgress)
 		default:

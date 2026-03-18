@@ -256,7 +256,7 @@ func downloadCorrigendumWithRetry(client *http.Client, pdfURL string, destPath s
 
 // DownloadPDFsWithProgress wraps DownloadPDFs and DownloadCorrigendumPDFs with progress callbacks.
 // Uses reasonable defaults: 100 workers, 50 rps, 5 retries.
-func DownloadPDFsWithProgress(db *sql.DB, pool *SessionPool, downloadDir string, errLog *ErrorLog, onProgress ProgressFunc) error {
+func DownloadPDFsWithProgress(db *sql.DB, downloadDir string, errLog *ErrorLog, onProgress ProgressFunc) error {
 	if onProgress != nil {
 		onProgress(0, 0, 0, "Starting bid PDF downloads...")
 	}

@@ -76,6 +76,13 @@ func InitDB(dbPath string) (*sql.DB, error) {
 	db.Exec("ALTER TABLE bids ADD COLUMN end_date_original TEXT DEFAULT ''")
 	// Backfill: set end_date_original = end_date where not yet set
 	db.Exec("UPDATE bids SET end_date_original = end_date WHERE end_date_original = '' AND end_date != ''")
+
+	// Indexes for dashboard stats and filtered search
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_department_name ON bids(department_name)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_category_name ON bids(category_name)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_end_date ON bids(end_date)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_created_at ON bids(created_at)")
+
 	return db, nil
 }
 
